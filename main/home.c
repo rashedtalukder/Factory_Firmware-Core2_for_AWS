@@ -43,6 +43,7 @@ void display_home_tab( lv_obj_t *tv )
     lvgl_port_lock( 0 );
     
     lv_obj_t *home_tab = lv_tabview_add_tab( tv, HOME_TAB_NAME );
+    lv_obj_set_style_pad_all( home_tab, 0, 0 );
 
     /* Create the title within the tab */
     static lv_style_t title_style;

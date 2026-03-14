@@ -149,10 +149,12 @@ void display_clock_tab( lv_obj_t*tv, lv_obj_t *core2forAWS_screen_obj )
 {
     lvgl_port_lock( 0 );
     clock_tab = lv_tabview_add_tab( tv, CLOCK_TAB_NAME );
+    lv_obj_set_style_pad_all( clock_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab */
     static lv_style_t bg_style;
     lv_obj_t *clock_bg = lv_obj_create( clock_tab );
+    lv_obj_set_style_pad_all( clock_bg, 0, 0 );
     lv_obj_align( clock_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( clock_bg, 290, 190 );
     lv_obj_remove_flag( clock_bg, LV_OBJ_FLAG_CLICKABLE );

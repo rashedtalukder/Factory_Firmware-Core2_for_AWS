@@ -50,10 +50,12 @@ void display_power_tab( lv_obj_t *tv, lv_obj_t *core2forAWS_screen_obj )
     lvgl_port_lock( 0 );
 
     power_tab = lv_tabview_add_tab( tv, POWER_TAB_NAME );
+    lv_obj_set_style_pad_all( power_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
     lv_obj_t *power_bg = lv_obj_create( power_tab );
+    lv_obj_set_style_pad_all( power_bg, 0, 0 );
     lv_obj_align( power_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( power_bg, 290, 190 );
     lv_obj_remove_flag( power_bg, LV_OBJ_FLAG_CLICKABLE );

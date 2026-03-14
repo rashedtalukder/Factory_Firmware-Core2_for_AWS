@@ -57,9 +57,11 @@ void display_LED_bar_tab(lv_obj_t *tv)
     lvgl_port_lock( 0 );
 
     lv_obj_t *led_bar_tab = lv_tabview_add_tab(tv, LED_BAR_TAB_NAME);
+    lv_obj_set_style_pad_all( led_bar_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab*/
     lv_obj_t *led_bar_bg = lv_obj_create( led_bar_tab );
+    lv_obj_set_style_pad_all( led_bar_bg, 0, 0 );
     lv_obj_align( led_bar_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( led_bar_bg, 290, 190 );
     lv_obj_remove_flag( led_bar_bg, LV_OBJ_FLAG_CLICKABLE );

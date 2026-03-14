@@ -52,9 +52,11 @@ void display_touch_tab( lv_obj_t *tv )
     lvgl_port_lock( 0 );
 
     lv_obj_t *touch_tab = lv_tabview_add_tab( tv, TOUCH_TAB_NAME );
+    lv_obj_set_style_pad_all( touch_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab*/
     touch_bg = lv_obj_create( touch_tab );
+    lv_obj_set_style_pad_all( touch_bg, 0, 0 );
     lv_obj_align( touch_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( touch_bg, 290, 190 );
     lv_obj_remove_flag( touch_bg, LV_OBJ_FLAG_CLICKABLE );

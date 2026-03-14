@@ -68,9 +68,11 @@ void display_mpu_tab(lv_obj_t *tv)
     lvgl_port_lock( 0 );
     
     lv_obj_t *mpu_tab = lv_tabview_add_tab(tv, MPU_TAB_NAME);
+    lv_obj_set_style_pad_all( mpu_tab, 0, 0 );
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
     lv_obj_t *mpu_bg = lv_obj_create( mpu_tab );
+    lv_obj_set_style_pad_all( mpu_bg, 0, 0 );
     lv_obj_align( mpu_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( mpu_bg, 290, 190 );
     lv_obj_remove_flag( mpu_bg, LV_OBJ_FLAG_CLICKABLE );

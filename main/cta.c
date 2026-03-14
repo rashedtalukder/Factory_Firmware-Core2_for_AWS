@@ -42,9 +42,11 @@ void display_cta_tab( lv_obj_t *tv )
     lvgl_port_lock( 0 );
     
     lv_obj_t *cta_tab = lv_tabview_add_tab( tv, CTA_TAB_NAME );
+    lv_obj_set_style_pad_all( cta_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab*/
     lv_obj_t *cta_bg = lv_obj_create( cta_tab );
+    lv_obj_set_style_pad_all( cta_bg, 0, 0 );
     lv_obj_align( cta_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( cta_bg, 290, 190 );
     lv_obj_remove_flag( cta_bg, LV_OBJ_FLAG_CLICKABLE );
@@ -90,4 +92,6 @@ void display_cta_tab( lv_obj_t *tv )
     lv_obj_align( url_label, LV_ALIGN_BOTTOM_MID, 0, -40 );
     
     lvgl_port_unlock();
+
+    ESP_LOGI( TAG, "Displaying tab" );
 }

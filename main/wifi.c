@@ -32,16 +32,19 @@
 
 #include "esp_log.h"
 #include "esp_wifi.h"
-#include "esp_log.h"
 #include "esp_event.h"
+#include "freertos/event_groups.h"
 
 #include "core2foraws.h"
 
 #include "wifi.h"
 
 #define DEFAULT_SCAN_LIST_SIZE 6
+#define WIFI_STA_STARTED_BIT BIT0
 
 TaskHandle_t wifi_handle;
+
+static EventGroupHandle_t _wifi_start_eg;
 
 static lv_obj_t *mbox;
 static lv_style_t modal_style;
@@ -51,15 +54,18 @@ static const char *TAG = "WIFI_SCAN";
 static void wifi_scan_task( void *pvParameters );
 static void mbox_event_cb( lv_event_t *e );
 static void event_handler( lv_event_t *e );
+static void _on_sta_start( void *arg, esp_event_base_t base, int32_t id, void *data );
 
 void display_wifi_tab( lv_obj_t *tv )
 {
     lvgl_port_lock( 0 );
 
     lv_obj_t *wifi_tab = lv_tabview_add_tab( tv, WIFI_TAB_NAME );
+    lv_obj_set_style_pad_all( wifi_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab*/
     lv_obj_t *wifi_bg = lv_obj_create( wifi_tab );
+    lv_obj_set_style_pad_all( wifi_bg, 0, 0 );
     lv_obj_align( wifi_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( wifi_bg, 290, 190 );
     lv_obj_remove_flag( wifi_bg, LV_OBJ_FLAG_CLICKABLE );
@@ -161,9 +167,37 @@ static void event_handler( lv_event_t *e )
     }
 }
 
+static void _on_sta_start( void *arg, esp_event_base_t base, int32_t id, void *data )
+{
+    if ( _wifi_start_eg )
+        xEventGroupSetBits( _wifi_start_eg, WIFI_STA_STARTED_BIT );
+}
+
 static void wifi_scan_task( void *pvParameters )
 {
     vTaskSuspend( NULL );
+
+    /* Start Wi-Fi in STA mode so scanning is possible. The driver is already
+     * initialized by core2foraws_wifi_init(); we only need to set the mode and
+     * start the radio, then wait for WIFI_EVENT_STA_START before scanning. */
+    _wifi_start_eg = xEventGroupCreate();
+    esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start, NULL );
+
+    esp_wifi_set_mode( WIFI_MODE_STA );
+    esp_err_t start_err = esp_wifi_start();
+    if ( start_err != ESP_OK && start_err != ESP_ERR_WIFI_CONN )
+    {
+        ESP_LOGE( TAG, "Failed to start Wi-Fi: 0x%x", start_err );
+        vEventGroupDelete( _wifi_start_eg );
+        vTaskDelete( NULL );
+        return;
+    }
+
+    /* Block until WIFI_EVENT_STA_START confirms the interface is ready */
+    xEventGroupWaitBits( _wifi_start_eg, WIFI_STA_STARTED_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS( 5000 ) );
+    esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start );
+    vEventGroupDelete( _wifi_start_eg );
+    _wifi_start_eg = NULL;
 
     /*Add buttons to the list*/
     lv_obj_t *list_btn;
@@ -179,10 +213,24 @@ static void wifi_scan_task( void *pvParameters )
         lv_obj_clean( ( lv_obj_t * )pvParameters );
         lvgl_port_unlock();
 
-        esp_wifi_scan_start( NULL, true );
-        ESP_ERROR_CHECK( esp_wifi_scan_get_ap_records( &number, ap_info ) );
+        esp_err_t scan_err = esp_wifi_scan_start( NULL, true );
+        if ( scan_err != ESP_OK )
+        {
+            ESP_LOGE( TAG, "Wi-Fi scan start failed: 0x%x", scan_err );
+            vTaskSuspend( NULL );
+            continue;
+        }
+        number = DEFAULT_SCAN_LIST_SIZE;
         ESP_ERROR_CHECK( esp_wifi_scan_get_ap_num( &ap_count ) );
-        
+        esp_err_t rec_err = esp_wifi_scan_get_ap_records( &number, ap_info );
+        if ( rec_err != ESP_OK )
+        {
+            ESP_LOGE( TAG, "Failed to get AP records: 0x%x", rec_err );
+            esp_wifi_clear_ap_list();
+            vTaskSuspend( NULL );
+            continue;
+        }
+
         ESP_LOGI( TAG, "Total APs scanned = %u", ap_count );
         
         for ( int i = 0; ( i < DEFAULT_SCAN_LIST_SIZE ) && ( i < ap_count ); i++ )

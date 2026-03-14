@@ -58,10 +58,12 @@ void display_microphone_tab( lv_obj_t *tv )
     lvgl_port_lock( 0 );
 
     lv_obj_t *mic_tab = lv_tabview_add_tab( tv, MICROPHONE_TAB_NAME );
+    lv_obj_set_style_pad_all( mic_tab, 0, 0 );
 
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
     lv_obj_t *mic_bg = lv_obj_create( mic_tab );
+    lv_obj_set_style_pad_all( mic_bg, 0, 0 );
     lv_obj_align( mic_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( mic_bg, 290, 190 );
     lv_obj_remove_flag( mic_bg, LV_OBJ_FLAG_CLICKABLE );
@@ -92,7 +94,8 @@ void display_microphone_tab( lv_obj_t *tv )
     lv_obj_add_style( body_label, &body_style, 0 );
 
     lvgl_port_unlock();
-    
+
+    ESP_LOGI( TAG, "Displaying tab" );
     xTaskCreatePinnedToCore( fft_show_task, "fftShowTask", 4096 * 2, ( void * )mic_tab, 1, &FFT_handle, 1 );
 }
 
