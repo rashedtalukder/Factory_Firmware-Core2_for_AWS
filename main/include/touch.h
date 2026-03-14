@@ -27,7 +27,5 @@
 
 #define TOUCH_TAB_NAME "FT6336U-TOUCH"
 
-extern TaskHandle_t touch_handle;
-
 void display_touch_tab( lv_obj_t *tv );
 void reset_touch_bg();

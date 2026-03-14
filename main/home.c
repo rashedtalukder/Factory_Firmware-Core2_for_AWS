@@ -40,44 +40,38 @@ static const char *TAG = HOME_TAB_NAME;
 
 void display_home_tab( lv_obj_t *tv )
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );   // Takes the core2foraws_display_semaphore mutex. This blocks any other task attempting to take it before it's free'd from executing.
+    lvgl_port_lock( 0 );
     
-    lv_obj_t *home_tab = lv_tabview_add_tab( tv, HOME_TAB_NAME );   // Create a LVGL tabview
+    lv_obj_t *home_tab = lv_tabview_add_tab( tv, HOME_TAB_NAME );
 
     /* Create the title within the tab */
     static lv_style_t title_style;
     lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
+    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
+    lv_style_set_text_color( &title_style, lv_color_make(0,0,0) );
     
-    lv_obj_t *tab_title_label = lv_label_create( home_tab, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "M5Stack\nCore2 for AWS IoT EduKit" );
-    lv_label_set_align( tab_title_label, LV_LABEL_ALIGN_CENTER );
-    lv_obj_align( tab_title_label, home_tab, LV_ALIGN_IN_TOP_MID, 0, 50 );
+    lv_obj_t *tab_title_label = lv_label_create( home_tab );
+    lv_obj_add_style( tab_title_label, &title_style, 0 );
+    lv_label_set_text_static( tab_title_label, "M5Stack\nCore2 for AWS IoT EduKit" );
+    lv_obj_set_style_text_align( tab_title_label, LV_TEXT_ALIGN_CENTER, 0 );
+    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 50 );
 
-    lv_obj_t *body_label = lv_label_create( home_tab, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK );
-    lv_label_set_static_text( body_label, "Swipe through to learn about some of the hardware features." );
+    lv_obj_t *body_label = lv_label_create( home_tab );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_text_static( body_label, "Swipe through to learn about some of the hardware features." );
     lv_obj_set_width( body_label, 280 );
-    lv_obj_align( body_label, home_tab, LV_ALIGN_CENTER, 0 , 10 );
+    lv_obj_align( body_label, LV_ALIGN_CENTER, 0 , 10 );
     
-    lv_obj_t *arrow_label = lv_label_create( home_tab, NULL );
-    lv_label_set_recolor( arrow_label, true );
-    size_t arrow_buf_len = snprintf ( NULL, 0, 
-        "#ff9900 %1$s       %1$s       %1$s#       #232f3e SWIPE #      #ff9900 %1$s       %1$s       %1$s#       #232f3e SWIPE #", 
-        LV_SYMBOL_LEFT );
-    char arrow_buf[ ++arrow_buf_len ];
-    snprintf ( arrow_buf, arrow_buf_len, 
-        "#ff9900 %1$s       %1$s       %1$s#       #232f3e SWIPE #      #ff9900 %1$s       %1$s       %1$s#       #232f3e SWIPE #", 
-        LV_SYMBOL_LEFT );
-    lv_label_set_text( arrow_label, arrow_buf );
-    lv_label_set_long_mode( arrow_label, LV_LABEL_LONG_SROLL_CIRC );
-    lv_label_set_anim_speed( arrow_label, 50 );
+    lv_obj_t *arrow_label = lv_label_create( home_tab );
+    lv_label_set_text( arrow_label,
+        LV_SYMBOL_LEFT "       " LV_SYMBOL_LEFT "       " LV_SYMBOL_LEFT "       SWIPE      "
+        LV_SYMBOL_LEFT "       " LV_SYMBOL_LEFT "       " LV_SYMBOL_LEFT "       SWIPE" );
+    lv_label_set_long_mode( arrow_label, LV_LABEL_LONG_SCROLL_CIRCULAR );
+    lv_obj_set_style_anim_duration( arrow_label, 6000, 0 );
     lv_obj_set_size( arrow_label, 290, 20 );
-    lv_label_set_align( arrow_label, LV_LABEL_ALIGN_CENTER );
-    lv_obj_align( arrow_label, home_tab, LV_ALIGN_IN_BOTTOM_MID, 0 , -40 );
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lv_obj_set_style_text_align( arrow_label, LV_TEXT_ALIGN_CENTER, 0 );
+    lv_obj_align( arrow_label, LV_ALIGN_BOTTOM_MID, 0 , -40 );
+    lvgl_port_unlock();
     
     ESP_LOGI( TAG, "\n\nWelcome to your M5Stack Core2 for AWS IoT EduKit reference hardware! Visit https://edukit.workshop.aws to view the tutorials and start learning how to build IoT solutions using AWS services.\n\n" );
 }

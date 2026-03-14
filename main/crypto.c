@@ -41,59 +41,59 @@ static const char *TAG = CRYPTO_TAB_NAME;
 
 void display_crypto_tab( lv_obj_t *tv )
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );   // Takes (blocks) the core2foraws_display_semaphore mutex from being used by another task.
+    lvgl_port_lock( 0 );
 
-    lv_obj_t *crypto_tab = lv_tabview_add_tab( tv, CRYPTO_TAB_NAME );  // Create a LVGL tabview
+    lv_obj_t *crypto_tab = lv_tabview_add_tab( tv, CRYPTO_TAB_NAME );
 
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
-    lv_obj_t *crypto_bg = lv_obj_create( crypto_tab, NULL );
-    lv_obj_align( crypto_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36 );
+    lv_obj_t *crypto_bg = lv_obj_create( crypto_tab );
+    lv_obj_align( crypto_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( crypto_bg, 290, 190 );
-    lv_obj_set_click( crypto_bg, false );
+    lv_obj_remove_flag( crypto_bg, LV_OBJ_FLAG_CLICKABLE );
     lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( 4, 151, 150 ) );
-    lv_obj_add_style( crypto_bg, LV_OBJ_PART_MAIN, &bg_style );
+    lv_style_set_bg_color( &bg_style, lv_color_make( 4, 151, 150 ) );
+    lv_obj_add_style( crypto_bg, &bg_style, 0 );
 
     /* Create the title within the main body object */
     static lv_style_t title_style;
     lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
-    lv_obj_t *tab_title_label = lv_label_create( crypto_bg, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "ATECC608 Crypto-Auth" );
-    lv_obj_align( tab_title_label, crypto_bg, LV_ALIGN_IN_TOP_MID, 0, 10 );
+    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
+    lv_style_set_text_color( &title_style, lv_color_make(0,0,0) );
+    lv_obj_t *tab_title_label = lv_label_create( crypto_bg );
+    lv_obj_add_style( tab_title_label, &title_style, 0 );
+    lv_label_set_text_static( tab_title_label, "ATECC608 Crypto-Auth" );
+    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
 
     /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( crypto_bg, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK );
-    lv_label_set_static_text( body_label, "The ATECC608 comes with pre-provisioned static certificates, along with Elliptic Curve Digital Signature Algorithm (ECDSA) sign/verify capability." );
+    lv_obj_t *body_label = lv_label_create( crypto_bg );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_text_static( body_label, "The ATECC608 comes with pre-provisioned static certificates, along with Elliptic Curve Digital Signature Algorithm (ECDSA) sign/verify capability." );
     lv_obj_set_width( body_label, 252 );
-    lv_obj_align( body_label, crypto_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40 );
+    lv_obj_align_to( body_label, crypto_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
 
     static lv_style_t body_style;
     lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
-    lv_obj_add_style( body_label, LV_OBJ_PART_MAIN, &body_style );
+    lv_style_set_text_color( &body_style, lv_color_make(0,0,0) );
+    lv_obj_add_style( body_label, &body_style, 0 );
 
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lvgl_port_unlock();
 
-    char *device_serial = heap_caps_malloc( CRYPTO_SERIAL_STR_SIZE, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM ); // Dynamically allocate enough memory to store the serial number string. ATCA_SERIAL_NUM_SIZE is the size of the hexadecimal serial number, which has two bytes per value and a string needs a trailing null terminator at the end.
-    esp_err_t ret = core2foraws_crypto_serial_get( device_serial ); // Gets the serial number. If successful, it will return ATCA_SUCCESS, which has a value of 0.
+    char *device_serial = heap_caps_malloc( CRYPTO_SERIAL_STR_SIZE, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM );
+    esp_err_t ret = core2foraws_crypto_serial_get( device_serial );
     if ( ret == ESP_OK )
     {
         char sn_pretext[] = "Serial  # ";
         size_t sn_pretext_len = strlen( sn_pretext );
         char sn_label_text[ CRYPTO_SERIAL_STR_SIZE + sn_pretext_len - 1 ];
         snprintf( sn_label_text, CRYPTO_SERIAL_STR_SIZE + sn_pretext_len - 1, "%s%s", sn_pretext, device_serial );
-        xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-        lv_obj_t *serial_label = lv_label_create( crypto_bg, NULL );
+        lvgl_port_lock( 0 );
+        lv_obj_t *serial_label = lv_label_create( crypto_bg );
         lv_label_set_text( serial_label, sn_label_text );
-        lv_label_set_align( serial_label, LV_LABEL_ALIGN_CENTER );
-        lv_obj_align( serial_label, crypto_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -14 );
-        lv_obj_add_style( serial_label, LV_OBJ_PART_MAIN, &body_style );
-        xSemaphoreGive( core2foraws_display_semaphore );
+        lv_obj_set_style_text_align( serial_label, LV_TEXT_ALIGN_CENTER, 0 );
+        lv_obj_align( serial_label, LV_ALIGN_BOTTOM_MID, 0, -14 );
+        lv_obj_add_style( serial_label, &body_style, 0 );
+        lvgl_port_unlock();
         heap_caps_free( device_serial );
     }
     else

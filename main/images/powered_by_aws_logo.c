@@ -768,11 +768,12 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_IMG_POWERED_BY_AWS_LOGO uint8_t powere
 };
 
 const lv_img_dsc_t powered_by_aws_logo = {
-  .header.always_zero = 0,
+  .header.magic = LV_IMAGE_HEADER_MAGIC,
   .header.w = 240,
   .header.h = 180,
-  .data_size = 43200 * LV_IMG_PX_SIZE_ALPHA_BYTE,
-  .header.cf = LV_IMG_CF_TRUE_COLOR_ALPHA,
+  .header.stride = 240 * 2,
+  .data_size = 240 * 180 * 3,
+  .header.cf = LV_COLOR_FORMAT_NATIVE_WITH_ALPHA,
   .data = powered_by_aws_logo_map,
 };
 

@@ -28,7 +28,7 @@
 #define CLOCK_TAB_NAME "BM85633-CLOCK"
 
 extern lv_obj_t *clock_tab;
-TaskHandle_t clock_handle;
+extern TaskHandle_t clock_handle;
 
 void display_clock_tab();
 void update_roller_time();

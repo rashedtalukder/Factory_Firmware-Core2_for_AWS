@@ -1,8 +1,4 @@
-#if defined(LV_LVGL_H_INCLUDE_SIMPLE)
 #include "lvgl.h"
-#else
-#include "lvgl/lvgl.h"
-#endif
 
 
 #ifndef LV_ATTRIBUTE_MEM_ALIGN
@@ -429,11 +425,12 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_IMG_CORE2FORA
 };
 
 const lv_img_dsc_t core2forAWS_qr_code = {
-  .header.always_zero = 0,
+  .header.magic = LV_IMAGE_HEADER_MAGIC,
   .header.w = 100,
   .header.h = 100,
-  .data_size = 10000 * LV_COLOR_SIZE / 8,
-  .header.cf = LV_IMG_CF_TRUE_COLOR_CHROMA_KEYED,
+  .header.stride = 100 * 2,
+  .data_size = 100 * 100 * 2,
+  .header.cf = LV_COLOR_FORMAT_NATIVE,
   .data = core2forAWS_qr_code_map,
 };
 

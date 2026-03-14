@@ -1,9 +1,9 @@
 [submodule "components/esp-cryptoauthlib"]
 	path = components/esp-cryptoauthlib
-	url = https://github.com/aws-iot-edukit/esp-cryptoauthlib
-[submodule "components/Core2-for-AWS-IoT-EduKit"]
-	path = components/Core2-for-AWS-IoT-EduKit
-	url = https://github.com/m5stack/Core2-for-AWS-IoT-EduKit.git
+	url = https://github.com/espressif/esp-cryptoauthlib
+[submodule "components/Core2-for-AWS-IoT-Kit"]
+	path = components/Core2-for-AWS-IoT-Kit
+	url = https://github.com/rashedtalukder/Core2-for-AWS-IoT-Kit.git
 [submodule "components/esp32-fft"]
 	path = components/esp32-fft
 	url = https://github.com/rashedtalukder/esp32-fft.git

@@ -49,107 +49,111 @@ static lv_style_t modal_style;
 static const char *TAG = "WIFI_SCAN";
 
 static void wifi_scan_task( void *pvParameters );
-static void mbox_event_cb( lv_obj_t *obj, lv_event_t evt );
-static void event_handler( lv_obj_t *obj, lv_event_t event );
+static void mbox_event_cb( lv_event_t *e );
+static void event_handler( lv_event_t *e );
 
 void display_wifi_tab( lv_obj_t *tv )
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
+    lvgl_port_lock( 0 );
 
     lv_obj_t *wifi_tab = lv_tabview_add_tab( tv, WIFI_TAB_NAME );
 
     /* Create the main body object and set background within the tab*/
-    lv_obj_t *wifi_bg = lv_obj_create( wifi_tab, NULL );
-    lv_obj_align( wifi_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36 );
+    lv_obj_t *wifi_bg = lv_obj_create( wifi_tab );
+    lv_obj_align( wifi_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( wifi_bg, 290, 190 );
-    lv_obj_set_click( wifi_bg, false );
+    lv_obj_remove_flag( wifi_bg, LV_OBJ_FLAG_CLICKABLE );
     
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
     lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( 0, 82, 118 ) );
-    lv_obj_add_style( wifi_bg, LV_OBJ_PART_MAIN, &bg_style );
+    lv_style_set_bg_color( &bg_style, lv_color_make( 0, 82, 118 ) );
+    lv_obj_add_style( wifi_bg, &bg_style, 0 );
 
     /* Create the title within the main body object */
     static lv_style_t title_style;
     lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_WHITE );
-    lv_obj_t *tab_title_label = lv_label_create( wifi_bg, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "Wi-Fi Scan (2.4GHz)" );
-    lv_obj_align( tab_title_label, wifi_bg, LV_ALIGN_IN_TOP_MID, 0, 10 );
+    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
+    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
+    lv_obj_t *tab_title_label = lv_label_create( wifi_bg );
+    lv_obj_add_style( tab_title_label, &title_style, 0 );
+    lv_label_set_text_static( tab_title_label, "Wi-Fi Scan (2.4GHz)" );
+    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
 
     /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( wifi_bg, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK );
-    lv_label_set_static_text( body_label, "Built-in 2.4GHz Wi-Fi and Bluetooth shared radio." );
+    lv_obj_t *body_label = lv_label_create( wifi_bg );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_text_static( body_label, "Built-in 2.4GHz Wi-Fi and Bluetooth shared radio." );
     lv_obj_set_width( body_label, 252 );
-    lv_obj_align( body_label, wifi_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40 );
+    lv_obj_align_to( body_label, wifi_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
     
     static lv_style_t body_style;
     lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, LV_STATE_DEFAULT, LV_COLOR_WHITE );
-    lv_obj_add_style( body_label, LV_OBJ_PART_MAIN, &body_style );
+    lv_style_set_text_color( &body_style, lv_color_make(255,255,255) );
+    lv_obj_add_style( body_label, &body_style, 0 );
     
     /*Create a list of available Wi-Fi Access Points*/
-    lv_obj_t *ap_list = lv_list_create( wifi_bg, NULL );
+    lv_obj_t *ap_list = lv_list_create( wifi_bg );
     lv_obj_set_size( ap_list, 260, 90 );
-    lv_obj_align( ap_list, wifi_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -10 );
-    lv_list_set_edge_flash( ap_list, true );
+    lv_obj_align( ap_list, LV_ALIGN_BOTTOM_MID, 0, -10 );
 
     /* Set the background for the popup modal */
     lv_style_init( &modal_style );
-    lv_style_set_bg_color( &modal_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
+    lv_style_set_bg_color( &modal_style, lv_color_make(0,0,0) );
 
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lvgl_port_unlock();
     xTaskCreatePinnedToCore( wifi_scan_task, "WiFiScanTask", configMINIMAL_STACK_SIZE * 4, (void*)ap_list, 1, &wifi_handle, 1 );
 }
 
-static void opa_anim( void *bg, lv_anim_value_t v )
+static void opa_anim( void *bg, int32_t v )
 {
-    lv_obj_set_style_local_bg_opa( bg, LV_OBJ_PART_MAIN, LV_STATE_DEFAULT, v );
+    lv_obj_set_style_bg_opa( bg, v, 0 );
 }
 
-static void mbox_event_cb( lv_obj_t *obj, lv_event_t evt )
+static void mbox_event_cb( lv_event_t *e )
 {
-    if ( evt == LV_EVENT_DELETE && obj == mbox )
+    lv_event_code_t code = lv_event_get_code( e );
+    lv_obj_t *obj = lv_event_get_target( e );
+    if ( code == LV_EVENT_DELETE && obj == mbox )
     {
         /* Delete the parent modal background */
-        lv_obj_del_async( lv_obj_get_parent( mbox ) );
-        mbox = NULL; /* happens before object is actually deleted! */
+        lv_obj_delete_async( lv_obj_get_parent( mbox ) );
+        mbox = NULL;
     }
-    else if ( evt == LV_EVENT_VALUE_CHANGED )
+    else if ( code == LV_EVENT_CLICKED )
     {
         /* Button was clicked */
-        lv_msgbox_start_auto_close( mbox, 0 );
+        lv_msgbox_close( mbox );
     }
 }
 
-static void event_handler( lv_obj_t *obj, lv_event_t event )
+static void event_handler( lv_event_t *e )
 {
-    if ( event == LV_EVENT_CLICKED )
+    lv_event_code_t code = lv_event_get_code( e );
+    lv_obj_t *btn = lv_event_get_target( e );
+    if ( code == LV_EVENT_CLICKED )
     {
-        printf( "Clicked: %s\n", lv_list_get_btn_text( obj ) );
-        lv_obj_t *obj = lv_obj_create( lv_scr_act(), NULL );
-        lv_obj_reset_style_list( obj, LV_OBJ_PART_MAIN );
-        lv_obj_add_style( obj, LV_OBJ_PART_MAIN, &modal_style );
-        lv_obj_set_pos( obj, 0, 0 );
-        lv_obj_set_size( obj, LV_HOR_RES, LV_VER_RES );
-
-        static const char *btns1[] = { "Ok", "" };
+        lv_obj_t *list = lv_obj_get_parent( btn );
+        printf( "Clicked: %s\n", lv_list_get_button_text( list, btn ) );
+        lv_obj_t *modal_bg = lv_obj_create( lv_screen_active() );
+        lv_obj_remove_style_all( modal_bg );
+        lv_obj_add_style( modal_bg, &modal_style, 0 );
+        lv_obj_set_pos( modal_bg, 0, 0 );
+        lv_obj_set_size( modal_bg, lv_display_get_horizontal_resolution(NULL), lv_display_get_vertical_resolution(NULL) );
 
         /* Create the message box as a child of the modal background */
-        mbox = lv_msgbox_create( obj, NULL );
-        lv_msgbox_add_btns( mbox, btns1 );
-        lv_msgbox_set_text( mbox, "Visit https://edukit.workshop.aws\n first to start building IoT apps" );
-        lv_obj_align( mbox, NULL, LV_ALIGN_CENTER, 0, 0 );
-        lv_obj_set_event_cb( mbox, mbox_event_cb );
+        mbox = lv_msgbox_create( modal_bg );
+        lv_msgbox_add_title( mbox, "Info" );
+        lv_msgbox_add_text( mbox, "Visit https://edukit.workshop.aws\n first to start building IoT apps" );
+        lv_obj_t *ok_btn = lv_msgbox_add_footer_button( mbox, "Ok" );
+        lv_obj_add_event_cb( ok_btn, mbox_event_cb, LV_EVENT_CLICKED, NULL );
+        lv_obj_add_event_cb( mbox, mbox_event_cb, LV_EVENT_DELETE, NULL );
+        lv_obj_align( mbox, LV_ALIGN_CENTER, 0, 0 );
 
         /* Fade the message box in with an animation */
         lv_anim_t a;
         lv_anim_init( &a );
-        lv_anim_set_var( &a, obj );
+        lv_anim_set_var( &a, modal_bg );
         lv_anim_set_time( &a, 500 );
         lv_anim_set_values( &a, LV_OPA_TRANSP, LV_OPA_50 );
         lv_anim_set_exec_cb( &a, ( lv_anim_exec_xcb_t )opa_anim );
@@ -171,9 +175,9 @@ static void wifi_scan_task( void *pvParameters )
 
     while( 1 )
     {
-        xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-        lv_list_clean( ( lv_obj_t * )pvParameters );
-        xSemaphoreGive( core2foraws_display_semaphore );
+        lvgl_port_lock( 0 );
+        lv_obj_clean( ( lv_obj_t * )pvParameters );
+        lvgl_port_unlock();
 
         esp_wifi_scan_start( NULL, true );
         ESP_ERROR_CHECK( esp_wifi_scan_get_ap_records( &number, ap_info ) );
@@ -183,10 +187,10 @@ static void wifi_scan_task( void *pvParameters )
         
         for ( int i = 0; ( i < DEFAULT_SCAN_LIST_SIZE ) && ( i < ap_count ); i++ )
         {
-            xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-            list_btn = lv_list_add_btn( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ( char * )ap_info[ i ].ssid );
-            lv_obj_set_event_cb( list_btn, event_handler );
-            xSemaphoreGive( core2foraws_display_semaphore );
+            lvgl_port_lock( 0 );
+            list_btn = lv_list_add_button( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ( char * )ap_info[ i ].ssid );
+            lv_obj_add_event_cb( list_btn, event_handler, LV_EVENT_CLICKED, NULL );
+            lvgl_port_unlock();
 
             ESP_LOGI( TAG, "SSID \t\t%s", ap_info[ i ].ssid );
             ESP_LOGI( TAG, "RSSI \t\t%d", ap_info[ i ].rssi );

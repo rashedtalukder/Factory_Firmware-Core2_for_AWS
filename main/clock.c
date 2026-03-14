@@ -43,30 +43,26 @@ lv_obj_t *clock_tab;
 static lv_obj_t *hour_roller;
 static lv_obj_t *minute_roller;
 
-static void hour_event_handler( lv_obj_t *obj, lv_event_t event )
+static void hour_event_handler( lv_event_t *e )
 {
-    if ( event == LV_EVENT_VALUE_CHANGED )
-    {
-        int hour = lv_roller_get_selected( obj );
-        
-        struct tm current_time;
-        core2foraws_rtc_time_get( &current_time );
-        current_time.tm_hour = hour;
-        core2foraws_rtc_time_set( current_time );
-    }
+    lv_obj_t *obj = lv_event_get_target( e );
+    int hour = lv_roller_get_selected( obj );
+    
+    struct tm current_time;
+    core2foraws_rtc_time_get( &current_time );
+    current_time.tm_hour = hour;
+    core2foraws_rtc_time_set( current_time );
 }
 
-static void minute_event_handler( lv_obj_t *obj, lv_event_t event )
+static void minute_event_handler( lv_event_t *e )
 {
-    if ( event == LV_EVENT_VALUE_CHANGED )
-    {
-        int minute = lv_roller_get_selected(obj);
-        
-        struct tm current_time;
-        core2foraws_rtc_time_get( &current_time );
-        current_time.tm_min = minute;
-        core2foraws_rtc_time_set( current_time );
-    }
+    lv_obj_t *obj = lv_event_get_target( e );
+    int minute = lv_roller_get_selected(obj);
+    
+    struct tm current_time;
+    core2foraws_rtc_time_get( &current_time );
+    current_time.tm_min = minute;
+    core2foraws_rtc_time_set( current_time );
 }
 
 void update_roller_time()
@@ -151,76 +147,76 @@ static char *generate_roller_str( int number )
 
 void display_clock_tab( lv_obj_t*tv, lv_obj_t *core2forAWS_screen_obj )
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-    clock_tab = lv_tabview_add_tab( tv, CLOCK_TAB_NAME );  // Create a LVGL tabview
+    lvgl_port_lock( 0 );
+    clock_tab = lv_tabview_add_tab( tv, CLOCK_TAB_NAME );
 
     /* Create the main body object and set background within the tab */
     static lv_style_t bg_style;
-    lv_obj_t *clock_bg = lv_obj_create( clock_tab, NULL );
-    lv_obj_align( clock_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36 );
+    lv_obj_t *clock_bg = lv_obj_create( clock_tab );
+    lv_obj_align( clock_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( clock_bg, 290, 190 );
-    lv_obj_set_click( clock_bg, false );
+    lv_obj_remove_flag( clock_bg, LV_OBJ_FLAG_CLICKABLE );
     lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( 254, 230, 0 ) );
-    lv_obj_add_style( clock_bg, LV_OBJ_PART_MAIN, &bg_style );
+    lv_style_set_bg_color( &bg_style, lv_color_make( 254, 230, 0 ) );
+    lv_obj_add_style( clock_bg, &bg_style, 0 );
 
     /* Create the title within the main body object */
     static lv_style_t title_style;
     lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
-    lv_obj_t *tab_title_label = lv_label_create( clock_bg, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "BM8563 Real-time Clock" );
-    lv_obj_align( tab_title_label, clock_bg, LV_ALIGN_IN_TOP_MID, 0, 10 );
+    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
+    lv_style_set_text_color( &title_style, lv_color_make(0,0,0) );
+    lv_obj_t *tab_title_label = lv_label_create( clock_bg );
+    lv_obj_add_style( tab_title_label, &title_style, 0 );
+    lv_label_set_text_static( tab_title_label, "BM8563 Real-time Clock" );
+    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
 
     /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( clock_bg, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK );
-    lv_label_set_static_text( body_label, "The BM8563 is an accurate, low power real-time clock. ▲" );
+    lv_obj_t *body_label = lv_label_create( clock_bg );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_text_static( body_label, "The BM8563 is an accurate, low power real-time clock. ▲" );
     lv_obj_set_width( body_label, 252 );
-    lv_obj_align( body_label, clock_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40 );
+    lv_obj_align_to( body_label, clock_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
 
     static lv_style_t body_style;
     lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
-    lv_obj_add_style( body_label, LV_OBJ_PART_MAIN, &body_style );
+    lv_style_set_text_color( &body_style, lv_color_make(0,0,0) );
+    lv_obj_add_style( body_label, &body_style, 0 );
 
     char *hours_str = generate_roller_str( 24 );
-    hour_roller = lv_roller_create( clock_bg, NULL );
+    hour_roller = lv_roller_create( clock_bg );
     lv_roller_set_options( hour_roller, hours_str, LV_ROLLER_MODE_NORMAL );
     lv_roller_set_visible_row_count( hour_roller, 2 );
-    lv_roller_set_auto_fit( hour_roller, false );
     lv_obj_set_width( hour_roller, 60 );
-    lv_obj_align( hour_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, -40, -20 );
+    lv_obj_align( hour_roller, LV_ALIGN_BOTTOM_MID, -40, -20 );
     heap_caps_free( hours_str );
 
-    lv_obj_t *separator_label = lv_label_create( clock_bg, NULL );
-    lv_label_set_static_text( separator_label, ":" );
+    lv_obj_t *separator_label = lv_label_create( clock_bg );
+    lv_label_set_text_static( separator_label, ":" );
     lv_obj_set_width( separator_label, 4 );
-    lv_obj_align( separator_label, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -50 );
+    lv_obj_align( separator_label, LV_ALIGN_BOTTOM_MID, 0, -50 );
 
     char *minutes_str = generate_roller_str( 60 );
-    minute_roller = lv_roller_create( clock_bg, hour_roller );
+    minute_roller = lv_roller_create( clock_bg );
     lv_roller_set_options( minute_roller, minutes_str, LV_ROLLER_MODE_NORMAL );
-    lv_obj_align( minute_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 40, -20 );
+    lv_obj_set_width( minute_roller, 60 );
+    lv_obj_align( minute_roller, LV_ALIGN_BOTTOM_MID, 40, -20 );
     heap_caps_free( minutes_str );
 
-    lv_obj_set_event_cb( hour_roller, hour_event_handler );
-    lv_obj_set_event_cb( minute_roller, minute_event_handler );
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lv_obj_add_event_cb( hour_roller, hour_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
+    lv_obj_add_event_cb( minute_roller, minute_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
+    lvgl_port_unlock();
 
     xTaskCreatePinnedToCore(clock_task, "clockTask", configMINIMAL_STACK_SIZE  *3, (void*) core2forAWS_screen_obj, 0, &clock_handle, 1);
 }
 
 void clock_task(void *pvParameters)
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-    lv_obj_t *time_label = lv_label_create((lv_obj_t*)pvParameters, NULL );
+    lvgl_port_lock( 0 );
+    lv_obj_t *time_label = lv_label_create((lv_obj_t*)pvParameters );
     lv_label_set_text(time_label, "00:00:00 AM");
-    lv_label_set_align(time_label, LV_LABEL_ALIGN_CENTER);
-    lv_obj_align(time_label, NULL, LV_ALIGN_IN_TOP_MID, 4, 10);
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lv_obj_set_style_text_align(time_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(time_label, LV_ALIGN_TOP_MID, 4, 10);
+    lvgl_port_unlock();
 
     for( ; ; )
     {
@@ -228,9 +224,9 @@ void clock_task(void *pvParameters)
         core2foraws_rtc_time_get( &current_time );
         char clock_buf[ 26 ];
         strftime( clock_buf, 26, "%I:%M:%S %p", &current_time );
-        xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
+        lvgl_port_lock( 0 );
         lv_label_set_text( time_label, clock_buf );
-        xSemaphoreGive( core2foraws_display_semaphore );
+        lvgl_port_unlock();
         vTaskDelay( pdMS_TO_TICKS( 1000 ) );
     }
     vTaskDelete( NULL ); // Should never get to here...

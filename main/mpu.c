@@ -59,82 +59,92 @@ TaskHandle_t MPU_handle;
 
 static const char *TAG = MPU_TAB_NAME;
 
-LV_IMG_DECLARE( gauge_hand );
+static lv_obj_t *needle_x;
+static lv_obj_t *needle_y;
+static lv_obj_t *needle_z;
 
 void display_mpu_tab(lv_obj_t *tv)
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );   // Takes the core2foraws_display_semaphore mutex. This blocks any other task attempting to take it before it's free'd from executing.
+    lvgl_port_lock( 0 );
     
-    lv_obj_t *mpu_tab = lv_tabview_add_tab(tv, MPU_TAB_NAME); // Create a LVGL tabview
+    lv_obj_t *mpu_tab = lv_tabview_add_tab(tv, MPU_TAB_NAME);
     /* Create the main body object and set background within the tab*/
     static lv_style_t bg_style;
-    lv_obj_t *mpu_bg = lv_obj_create( mpu_tab, NULL );
-    lv_obj_align( mpu_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36 );
+    lv_obj_t *mpu_bg = lv_obj_create( mpu_tab );
+    lv_obj_align( mpu_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( mpu_bg, 290, 190 );
-    lv_obj_set_click( mpu_bg, false );
+    lv_obj_remove_flag( mpu_bg, LV_OBJ_FLAG_CLICKABLE );
     lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( 169, 0, 103 ) );
-    lv_obj_add_style( mpu_bg, LV_OBJ_PART_MAIN, &bg_style );
+    lv_style_set_bg_color( &bg_style, lv_color_make( 169, 0, 103 ) );
+    lv_obj_add_style( mpu_bg, &bg_style, 0 );
 
     /* Create the title within the main body object */
     static lv_style_t title_style;
     lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_WHITE );
-    lv_obj_t *tab_title_label = lv_label_create( mpu_bg, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "MPU6886 IMU Sensor" );
-    lv_obj_align( tab_title_label, mpu_bg, LV_ALIGN_IN_TOP_MID, 0, 10 );
+    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
+    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
+    lv_obj_t *tab_title_label = lv_label_create( mpu_bg );
+    lv_obj_add_style( tab_title_label, &title_style, 0 );
+    lv_label_set_text_static( tab_title_label, "MPU6886 IMU Sensor" );
+    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
 
     /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( mpu_bg, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK );
-    lv_label_set_static_text( body_label, "The Inertial Measurement Unit (IMU) senses the motion of the device." );
+    lv_obj_t *body_label = lv_label_create( mpu_bg );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_text_static( body_label, "The Inertial Measurement Unit (IMU) senses the motion of the device." );
     lv_obj_set_width( body_label, 120 );
-    lv_obj_align( body_label, mpu_bg, LV_ALIGN_IN_LEFT_MID, 20, 0 );
+    lv_obj_align( body_label, LV_ALIGN_LEFT_MID, 20, 0 );
 
     static lv_style_t body_style;
     lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, LV_STATE_DEFAULT, LV_COLOR_WHITE );
-    lv_obj_add_style( body_label, LV_OBJ_PART_MAIN, &body_style );
+    lv_style_set_text_color( &body_style, lv_color_make(255,255,255) );
+    lv_obj_add_style( body_label, &body_style, 0 );
 
     /* Create the sensor color legend */
-    lv_obj_t *lgnd_bg = lv_obj_create( mpu_bg, NULL );
+    lv_obj_t *lgnd_bg = lv_obj_create( mpu_bg );
     lv_obj_set_size( lgnd_bg, 200, 24 );
-    lv_obj_align( lgnd_bg, mpu_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -10 );
-    lv_obj_t *legend_label = lv_label_create( lgnd_bg, NULL );
-    lv_label_set_recolor( legend_label, true ); // Enable recoloring of the text within the label with color HEX
-    lv_label_set_static_text( legend_label, "#ff0000 Rot_X#    #008000 Rot_Y#    #0000ff Rot_Z#" );
-    lv_label_set_align( legend_label, LV_LABEL_ALIGN_CENTER );
-    lv_obj_align( legend_label, lgnd_bg, LV_ALIGN_CENTER, 0, 0 );
-    lv_obj_set_style_local_bg_color( lgnd_bg, LV_OBJ_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_WHITE );
+    lv_obj_align( lgnd_bg, LV_ALIGN_BOTTOM_MID, 0, -10 );
+    lv_obj_set_style_bg_color( lgnd_bg, lv_color_make(255,255,255), 0 );
+    lv_obj_t *legend_label_x = lv_label_create( lgnd_bg );
+    lv_label_set_text_static( legend_label_x, "Rot_X" );
+    lv_obj_set_style_text_color( legend_label_x, lv_color_hex(0xff0000), 0 );
+    lv_obj_align( legend_label_x, LV_ALIGN_LEFT_MID, 4, 0 );
+    lv_obj_t *legend_label_y = lv_label_create( lgnd_bg );
+    lv_label_set_text_static( legend_label_y, "Rot_Y" );
+    lv_obj_set_style_text_color( legend_label_y, lv_color_hex(0x008000), 0 );
+    lv_obj_align( legend_label_y, LV_ALIGN_CENTER, 0, 0 );
+    lv_obj_t *legend_label_z = lv_label_create( lgnd_bg );
+    lv_label_set_text_static( legend_label_z, "Rot_Z" );
+    lv_obj_set_style_text_color( legend_label_z, lv_color_hex(0x0000ff), 0 );
+    lv_obj_align( legend_label_z, LV_ALIGN_RIGHT_MID, -4, 0 );
     
-    /* Create a gauge */
-    static lv_color_t gauge_needle_colors[ 3 ];
-    gauge_needle_colors[ 0 ] = LV_COLOR_RED;
-    gauge_needle_colors[ 1 ] = LV_COLOR_GREEN;
-    gauge_needle_colors[ 2 ] = LV_COLOR_BLUE;
+    /* Create a scale (replaces meter in LVGL 9) */
+    lv_obj_t *meter = lv_scale_create( mpu_bg );
+    lv_obj_remove_flag( meter, LV_OBJ_FLAG_CLICKABLE );
+    lv_obj_set_size( meter, 106, 106 );
+    lv_scale_set_mode( meter, LV_SCALE_MODE_ROUND_INNER );
+    lv_scale_set_range( meter, -400, 400 );
+    lv_scale_set_angle_range( meter, 300 );
+    lv_scale_set_rotation( meter, 120 );
+    lv_scale_set_total_tick_count( meter, 11 );
+    lv_scale_set_major_tick_every( meter, 2 );
+    lv_obj_set_style_length( meter, 10, LV_PART_INDICATOR );
+    lv_obj_set_style_length( meter, 5, LV_PART_ITEMS );
 
-    LV_IMG_DECLARE( gauge_hand );
+    needle_x = lv_line_create( meter );
+    lv_obj_set_style_line_color( needle_x, lv_palette_main( LV_PALETTE_RED ), 0 );
+    lv_obj_set_style_line_width( needle_x, 2, 0 );
+    needle_y = lv_line_create( meter );
+    lv_obj_set_style_line_color( needle_y, lv_palette_main( LV_PALETTE_GREEN ), 0 );
+    lv_obj_set_style_line_width( needle_y, 2, 0 );
+    needle_z = lv_line_create( meter );
+    lv_obj_set_style_line_color( needle_z, lv_palette_main( LV_PALETTE_BLUE ), 0 );
+    lv_obj_set_style_line_width( needle_z, 2, 0 );
 
-    lv_obj_t *gauge = lv_gauge_create( mpu_bg, NULL );
-    lv_obj_set_click( gauge, false );
-    lv_obj_set_size( gauge, 106, 106 );
-    lv_gauge_set_scale( gauge, 300, 10, 0 );
-    lv_gauge_set_range( gauge, -400, 400 );
-    lv_gauge_set_critical_value( gauge, 2001 );
-    lv_gauge_set_needle_count( gauge, 3, gauge_needle_colors );
-    lv_gauge_set_needle_img( gauge, &gauge_hand, 5, 4 );
-    lv_obj_set_style_local_image_recolor_opa(gauge, LV_GAUGE_PART_NEEDLE, LV_STATE_DEFAULT, LV_OPA_COVER );
-
-    lv_obj_align( gauge, NULL, LV_ALIGN_IN_RIGHT_MID, -20, 0 );
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lv_obj_align( meter, LV_ALIGN_RIGHT_MID, -20, 0 );
+    lvgl_port_unlock();
     
-    /* 
-    Create a task to read the MPU values running on the 2nd Core. 
-    Pass in pointer to the gauge object to display value on the gauge.
-    */
-    xTaskCreatePinnedToCore( MPU_task, "MPUTask", 2048, ( void * ) gauge, 1, &MPU_handle, 1 );
+    xTaskCreatePinnedToCore( MPU_task, "MPUTask", 2048, ( void * ) meter, 1, &MPU_handle, 1 );
 }
 
 void MPU_task( void *pvParameters )
@@ -158,21 +168,16 @@ void MPU_task( void *pvParameters )
         float ax, ay, az;
         core2foraws_motion_accel_get( &ax, &ay, &az );
         core2foraws_motion_gyro_get( &gx, &gy, &gz );
-        
-
-        // float pitch, roll, yaw;
-        // MahonyAHRSupdateIMU( gx * DEGREES_TO_RADIANS, gy * DEGREES_TO_RADIANS, gz * DEGREES_TO_RADIANS, ax, ay, az, &pitch, &roll, &yaw );
-        // ESP_LOGI( TAG, "Pitch: %.6f Roll: %.6f Yaw: %.6f | Raw Accel: X-%.6f Y-%.6f Z-%.6f | Gyro: X-%.6f Y-%.6fZ- %.6f", pitch, yaw, roll, ax, ay, az, gx, gy, gz );
 
         ESP_LOGI( TAG, "Raw Accel: X-%.6f Y-%.6f Z-%.6f | Gyro: X-%.6f Y-%.6fZ- %.6f", ax, ay, az, gx, gy, gz );
 
-        lv_obj_t *gauges = ( lv_obj_t * )pvParameters;
+        lv_obj_t *meter = ( lv_obj_t * )pvParameters;
         
-        xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-        lv_gauge_set_value( gauges, 0, ( int ) ( gx-calib_gx ));
-        lv_gauge_set_value( gauges, 1, ( int ) ( gy-calib_gy ));
-        lv_gauge_set_value( gauges, 2, ( int ) ( gz-calib_gz ));
-        xSemaphoreGive( core2foraws_display_semaphore ); 
+        lvgl_port_lock( 0 );
+        lv_scale_set_line_needle_value( meter, needle_x, 40, ( int ) ( gx-calib_gx ));
+        lv_scale_set_line_needle_value( meter, needle_y, 40, ( int ) ( gy-calib_gy ));
+        lv_scale_set_line_needle_value( meter, needle_z, 40, ( int ) ( gz-calib_gz ));
+        lvgl_port_unlock(); 
         
         vTaskDelay( pdMS_TO_TICKS( 30 ) );
     }

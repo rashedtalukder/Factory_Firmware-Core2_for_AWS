@@ -37,8 +37,6 @@
 
 #include "touch.h"
 
-TaskHandle_t touch_handle;
-
 static const char *TAG = TOUCH_TAB_NAME;
 
 // Should create a struct to pass pointers to events, but globals are easier to understand.
@@ -47,153 +45,138 @@ static lv_style_t bg_style;
 static lv_obj_t *touch_bg;
 static lv_obj_t *button_touch_label;
 
-static void touch_task( void *pvParameters );
+static void touch_button_callback( enum core2foraws_button_btns button, press_event_t event );
 
 void display_touch_tab( lv_obj_t *tv )
 {
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
+    lvgl_port_lock( 0 );
 
     lv_obj_t *touch_tab = lv_tabview_add_tab( tv, TOUCH_TAB_NAME );
 
     /* Create the main body object and set background within the tab*/
-    touch_bg = lv_obj_create( touch_tab, NULL );
-    lv_obj_align( touch_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36 );
+    touch_bg = lv_obj_create( touch_tab );
+    lv_obj_align( touch_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
     lv_obj_set_size( touch_bg, 290, 190 );
-    lv_obj_set_click( touch_bg, false );
+    lv_obj_remove_flag( touch_bg, LV_OBJ_FLAG_CLICKABLE );
     lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( r, g, b ) );
-    lv_obj_add_style( touch_bg, LV_OBJ_PART_MAIN, &bg_style );
+    lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
+    lv_obj_add_style( touch_bg, &bg_style, 0 );
 
     /* Create the title within the main body object */
     static lv_style_t title_style;
     lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_WHITE );
-    lv_obj_t *tab_title_label = lv_label_create( touch_bg, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "FT6336U Capacitive Touch" );
-    lv_obj_align( tab_title_label, touch_bg, LV_ALIGN_IN_TOP_MID, 0, 10 );
+    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
+    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
+    lv_obj_t *tab_title_label = lv_label_create( touch_bg );
+    lv_obj_add_style( tab_title_label, &title_style, 0 );
+    lv_label_set_text_static( tab_title_label, "FT6336U Capacitive Touch" );
+    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
 
     /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( touch_bg, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK);
-    lv_label_set_static_text( body_label, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
+    lv_obj_t *body_label = lv_label_create( touch_bg );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_text_static( body_label, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
         "\n\n\n\nPress the touch buttons below." );
     lv_obj_set_width( body_label, 252 );
-    lv_obj_align( body_label, touch_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40 );
+    lv_obj_align_to( body_label, touch_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
 
     static lv_style_t body_style;
     lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, LV_STATE_DEFAULT, LV_COLOR_WHITE );
-    lv_obj_add_style( body_label, LV_OBJ_PART_MAIN, &body_style );
+    lv_style_set_text_color( &body_style, lv_color_make(255,255,255) );
+    lv_obj_add_style( body_label, &body_style, 0 );
     
-    button_touch_label = lv_label_create( touch_bg, NULL );
+    button_touch_label = lv_label_create( touch_bg );
     lv_label_set_text( button_touch_label, "No button tapped" );
-    lv_label_set_align( button_touch_label, LV_LABEL_ALIGN_CENTER );
-    lv_obj_align( button_touch_label, touch_bg, LV_ALIGN_CENTER, 0, 44 );
+    lv_obj_set_style_text_align( button_touch_label, LV_TEXT_ALIGN_CENTER, 0 );
+    lv_obj_align( button_touch_label, LV_ALIGN_CENTER, 0, 44 );
 
     /*Create an array for the points of the line*/
-    static lv_point_t line_points[] = { {20, 0}, {70, 0} };
+    static lv_point_precise_t line_points[] = { {20, 0}, {70, 0} };
 
     /*Create style*/
     static lv_style_t red_line_style;
     lv_style_init( &red_line_style );
-    lv_style_set_line_width( &red_line_style, LV_STATE_DEFAULT, 6 );
-    lv_style_set_line_color( &red_line_style, LV_STATE_DEFAULT, LV_COLOR_RED );
-    lv_style_set_line_rounded( &red_line_style, LV_STATE_DEFAULT, true );
+    lv_style_set_line_width( &red_line_style, 6 );
+    lv_style_set_line_color( &red_line_style, lv_palette_main( LV_PALETTE_RED ) );
+    lv_style_set_line_rounded( &red_line_style, true );
 
     static lv_style_t green_line_style;
     lv_style_init( &green_line_style );
-    lv_style_set_line_width( &green_line_style, LV_STATE_DEFAULT, 6 );
-    lv_style_set_line_color( &green_line_style, LV_STATE_DEFAULT, LV_COLOR_GREEN );
-    lv_style_set_line_rounded( &green_line_style, LV_STATE_DEFAULT, true );
+    lv_style_set_line_width( &green_line_style, 6 );
+    lv_style_set_line_color( &green_line_style, lv_palette_main( LV_PALETTE_GREEN ) );
+    lv_style_set_line_rounded( &green_line_style, true );
 
     static lv_style_t blue_line_style;
     lv_style_init( &blue_line_style );
-    lv_style_set_line_width( &blue_line_style, LV_STATE_DEFAULT, 6 );
-    lv_style_set_line_color( &blue_line_style, LV_STATE_DEFAULT, LV_COLOR_BLUE );
-    lv_style_set_line_rounded( &blue_line_style, LV_STATE_DEFAULT, true );
+    lv_style_set_line_width( &blue_line_style, 6 );
+    lv_style_set_line_color( &blue_line_style, lv_palette_main( LV_PALETTE_BLUE ) );
+    lv_style_set_line_rounded( &blue_line_style, true );
 
     /*Create a line and apply the new style*/
-    lv_obj_t *left_line = lv_line_create( touch_tab, NULL );
+    lv_obj_t *left_line = lv_line_create( touch_tab );
     lv_line_set_points( left_line, line_points, 2 );
-    lv_obj_add_style( left_line, LV_LINE_PART_MAIN, &red_line_style );
-    lv_obj_align( left_line, NULL, LV_ALIGN_IN_LEFT_MID, 8, 108 );
+    lv_obj_add_style( left_line, &red_line_style, 0 );
+    lv_obj_align( left_line, LV_ALIGN_LEFT_MID, 8, 108 );
 
-    lv_obj_t *middle_line = lv_line_create( touch_tab, NULL );
+    lv_obj_t *middle_line = lv_line_create( touch_tab );
     lv_line_set_points( middle_line, line_points, 2 );
-    lv_obj_add_style( middle_line, LV_LINE_PART_MAIN, &green_line_style );
-    lv_obj_align( middle_line, NULL, LV_ALIGN_CENTER, -12, 108 );
+    lv_obj_add_style( middle_line, &green_line_style, 0 );
+    lv_obj_align( middle_line, LV_ALIGN_CENTER, -12, 108 );
     
-    lv_obj_t *right_line = lv_line_create( touch_tab, NULL );
+    lv_obj_t *right_line = lv_line_create( touch_tab );
     lv_line_set_points( right_line, line_points, 2 );
-    lv_obj_add_style( right_line, LV_LINE_PART_MAIN, &blue_line_style );
-    lv_obj_align( right_line, NULL, LV_ALIGN_IN_RIGHT_MID, -30, 108 );
+    lv_obj_add_style( right_line, &blue_line_style, 0 );
+    lv_obj_align( right_line, LV_ALIGN_RIGHT_MID, -30, 108 );
 
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lvgl_port_unlock();
 
-    xTaskCreatePinnedToCore( touch_task, "touchTask", configMINIMAL_STACK_SIZE * 3, NULL, 1, &touch_handle, 1 );
+    core2foraws_button_register_callback( BUTTON_LEFT, PRESS, touch_button_callback );
+    core2foraws_button_register_callback( BUTTON_MIDDLE, PRESS, touch_button_callback );
+    core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, touch_button_callback );
 }
 
 void reset_touch_bg()
 {
     r=0x00, g=0x00, b=0x00;
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( r, g, b ) );
-    lv_obj_add_style( touch_bg, LV_OBJ_PART_MAIN, &bg_style );
+    lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
+    lv_obj_add_style( touch_bg, &bg_style, 0 );
 }
 
-static void touch_task( void *pvParameters )
+static void touch_button_callback( enum core2foraws_button_btns button, press_event_t event )
 {
+    if ( event != PRESS ) return;
 
-    vTaskSuspend( NULL );
+    if ( button == BUTTON_LEFT )
+    {
+        ESP_LOGI( TAG, "Left button was tapped" );
+        r += 0x10;
 
-    for( ; ; )
-    {   
-        bool button_event = false;
-        core2foraws_button_tapped( BUTTON_LEFT, &button_event );
-        if ( button_event )
-        {
-            ESP_LOGI( TAG, "Left button was tapped" );
-            r += 0x10;
-
-            xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-            lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( r, g, b ) );
-            lv_obj_add_style( touch_bg, LV_OBJ_PART_MAIN, &bg_style );
-
-            lv_label_set_text( button_touch_label, "Left button" );
-            xSemaphoreGive( core2foraws_display_semaphore );
-        }
-
-        core2foraws_button_tapped( BUTTON_MIDDLE, &button_event );
-        if ( button_event )
-        {
-            ESP_LOGI( TAG, "Middle button was tapped" );
-            g += 0x10;
-
-            xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-            lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( r, g, b ) );
-            lv_obj_add_style( touch_bg, LV_OBJ_PART_MAIN, &bg_style );
-
-            lv_label_set_text( button_touch_label, "Middle button" );
-            xSemaphoreGive( core2foraws_display_semaphore );
-        }
-
-        core2foraws_button_tapped( BUTTON_RIGHT, &button_event );
-        if ( button_event )
-        {
-            ESP_LOGI( TAG, "Right button was tapped" );
-            b += 0x10;
-
-            xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-            lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( r, g, b ) );
-            lv_obj_add_style( touch_bg, LV_OBJ_PART_MAIN, &bg_style );
-
-            lv_label_set_text( button_touch_label, "Right button" );
-            xSemaphoreGive( core2foraws_display_semaphore );
-        }
-
-        vTaskDelay( pdMS_TO_TICKS( 30) );
+        lvgl_port_lock( 0 );
+        lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
+        lv_obj_add_style( touch_bg, &bg_style, 0 );
+        lv_label_set_text( button_touch_label, "Left button" );
+        lvgl_port_unlock();
     }
+    else if ( button == BUTTON_MIDDLE )
+    {
+        ESP_LOGI( TAG, "Middle button was tapped" );
+        g += 0x10;
 
-    vTaskDelete( NULL ); // Should never get to here...
+        lvgl_port_lock( 0 );
+        lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
+        lv_obj_add_style( touch_bg, &bg_style, 0 );
+        lv_label_set_text( button_touch_label, "Middle button" );
+        lvgl_port_unlock();
+    }
+    else if ( button == BUTTON_RIGHT )
+    {
+        ESP_LOGI( TAG, "Right button was tapped" );
+        b += 0x10;
+
+        lvgl_port_lock( 0 );
+        lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
+        lv_obj_add_style( touch_bg, &bg_style, 0 );
+        lv_label_set_text( button_touch_label, "Right button" );
+        lvgl_port_unlock();
+    }
 }
