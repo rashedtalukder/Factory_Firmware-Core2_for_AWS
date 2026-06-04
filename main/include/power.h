@@ -29,5 +29,10 @@
 
 extern lv_obj_t *power_tab;
 
-void display_power_tab();
+typedef struct {
+    lv_obj_t *battery_label;
+    lv_obj_t *charge_label;
+} battery_labels_t;
+
+void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels );
 void battery_task( void *pvParameters );

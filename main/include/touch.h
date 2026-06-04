@@ -29,3 +29,4 @@
 
 void display_touch_tab( lv_obj_t *tv );
 void reset_touch_bg();
+void touch_on_right_press( void );

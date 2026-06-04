@@ -25,11 +25,12 @@
 
 #pragma once
 
-#define CLOCK_TAB_NAME "BM85633-CLOCK"
+#define CLOCK_TAB_NAME "BM8563-CLOCK"
 
 extern lv_obj_t *clock_tab;
 extern TaskHandle_t clock_handle;
 
-void display_clock_tab();
+void display_clock_tab( lv_obj_t *tv );
 void update_roller_time();
+void clock_on_right_press( void );
 void clock_task( void *pvParameters );

@@ -33,6 +33,7 @@
 
 #include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "cta.h"
 
 static const char *TAG = CTA_TAB_NAME;
@@ -41,55 +42,24 @@ void display_cta_tab( lv_obj_t *tv )
 {
     lvgl_port_lock( 0 );
     
-    lv_obj_t *cta_tab = lv_tabview_add_tab( tv, CTA_TAB_NAME );
-    lv_obj_set_style_pad_all( cta_tab, 0, 0 );
+    lv_obj_t *cta_tab = ui_tabview_add_tab( tv, CTA_TAB_NAME );
 
-    /* Create the main body object and set background within the tab*/
-    lv_obj_t *cta_bg = lv_obj_create( cta_tab );
-    lv_obj_set_style_pad_all( cta_bg, 0, 0 );
-    lv_obj_align( cta_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
-    lv_obj_set_size( cta_bg, 290, 190 );
-    lv_obj_remove_flag( cta_bg, LV_OBJ_FLAG_CLICKABLE );
-    
-    /* Create the title within the tab */
-    static lv_style_t title_style;
-    lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
-    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
-    
-    lv_obj_t *tab_title_label = lv_label_create( cta_tab );
-    lv_obj_add_style( tab_title_label, &title_style, 0 );
-    lv_label_set_text_static( tab_title_label, "Next Steps" );
-    lv_obj_set_style_text_align( tab_title_label, LV_TEXT_ALIGN_CENTER, 0 );
-    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 50 );
+    /* Card with flex-column layout */
+    lv_obj_t *card = ui_create_card( cta_tab, lv_color_make( 35, 47, 62 ) );
+    ui_card_title( card, "Next Steps", lv_color_make(255,255,255) );
+    ui_card_text( card, "Get hands-on experience building IoT solutions and learn about the AWS IoT EduKit program:", lv_color_make(255,255,255) );
 
-    /* Create the main body object and set background within the tab*/
-    static lv_style_t bg_style;
-    lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, lv_color_make( 35, 47, 62 ) );
-    lv_obj_add_style( cta_bg, &bg_style, 0 );
+    /* URL label — flex grows to push it toward bottom */
+    lv_obj_t *spacer = lv_obj_create( card );
+    lv_obj_remove_style_all( spacer );
+    lv_obj_set_size( spacer, 0, 0 );
+    lv_obj_set_flex_grow( spacer, 1 );
 
-    lv_obj_t *cta_label = lv_label_create( cta_tab );
-    lv_label_set_long_mode( cta_label, LV_LABEL_LONG_WRAP );
-    lv_label_set_text( cta_label, "Get hands-on experience building IoT solutions and learn about the AWS IoT EduKit program:" );
-    lv_obj_set_width( cta_label, 260 );
-    lv_obj_align( cta_label, LV_ALIGN_CENTER, 0 , 10 );
-
-    static lv_style_t cta_style;
-    lv_style_init( &cta_style );
-    lv_style_set_text_color( &cta_style, lv_color_make(255,255,255) );
-    lv_obj_add_style( cta_label, &cta_style, 0 );
-
-    /* Create the URL label */
-    static lv_style_t url_style;
-    lv_style_init( &url_style );
-    lv_style_set_text_color( &url_style, lv_color_make( 255, 153, 0 ) );
-    lv_style_set_text_font( &url_style, LV_FONT_DEFAULT );
-
-    lv_obj_t *url_label = lv_label_create( cta_tab );
-    lv_obj_add_style( url_label, &url_style, 0 );
+    lv_obj_t *url_label = lv_label_create( card );
+    lv_obj_set_style_text_color( url_label, lv_color_hex( UI_ACCENT_COLOR ), 0 );
     lv_label_set_text( url_label, "https://edukit.workshop.aws" );
-    lv_obj_align( url_label, LV_ALIGN_BOTTOM_MID, 0, -40 );
+    lv_obj_set_width( url_label, lv_pct( 100 ) );
+    lv_obj_set_style_text_align( url_label, LV_TEXT_ALIGN_CENTER, 0 );
     
     lvgl_port_unlock();
 

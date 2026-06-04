@@ -37,6 +37,7 @@
 
 #include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "wifi.h"
 
 #define DEFAULT_SCAN_LIST_SIZE 6
@@ -60,48 +61,17 @@ void display_wifi_tab( lv_obj_t *tv )
 {
     lvgl_port_lock( 0 );
 
-    lv_obj_t *wifi_tab = lv_tabview_add_tab( tv, WIFI_TAB_NAME );
-    lv_obj_set_style_pad_all( wifi_tab, 0, 0 );
+    lv_obj_t *wifi_tab = ui_tabview_add_tab( tv, WIFI_TAB_NAME );
 
-    /* Create the main body object and set background within the tab*/
-    lv_obj_t *wifi_bg = lv_obj_create( wifi_tab );
-    lv_obj_set_style_pad_all( wifi_bg, 0, 0 );
-    lv_obj_align( wifi_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
-    lv_obj_set_size( wifi_bg, 290, 190 );
-    lv_obj_remove_flag( wifi_bg, LV_OBJ_FLAG_CLICKABLE );
-    
-    /* Create the main body object and set background within the tab*/
-    static lv_style_t bg_style;
-    lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, lv_color_make( 0, 82, 118 ) );
-    lv_obj_add_style( wifi_bg, &bg_style, 0 );
+    /* Card with flex-column layout */
+    lv_obj_t *card = ui_create_card( wifi_tab, lv_color_make( 0, 82, 118 ) );
+    ui_card_title( card, "Wi-Fi Scan (2.4GHz)", lv_color_make(255,255,255) );
+    ui_card_text( card, "Built-in 2.4GHz Wi-Fi and Bluetooth shared radio.", lv_color_make(255,255,255) );
 
-    /* Create the title within the main body object */
-    static lv_style_t title_style;
-    lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
-    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
-    lv_obj_t *tab_title_label = lv_label_create( wifi_bg );
-    lv_obj_add_style( tab_title_label, &title_style, 0 );
-    lv_label_set_text_static( tab_title_label, "Wi-Fi Scan (2.4GHz)" );
-    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
-
-    /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( wifi_bg );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
-    lv_label_set_text_static( body_label, "Built-in 2.4GHz Wi-Fi and Bluetooth shared radio." );
-    lv_obj_set_width( body_label, 252 );
-    lv_obj_align_to( body_label, wifi_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
-    
-    static lv_style_t body_style;
-    lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, lv_color_make(255,255,255) );
-    lv_obj_add_style( body_label, &body_style, 0 );
-    
-    /*Create a list of available Wi-Fi Access Points*/
-    lv_obj_t *ap_list = lv_list_create( wifi_bg );
-    lv_obj_set_size( ap_list, 260, 90 );
-    lv_obj_align( ap_list, LV_ALIGN_BOTTOM_MID, 0, -10 );
+    /* AP list fills remaining card space */
+    lv_obj_t *ap_list = lv_list_create( card );
+    lv_obj_set_width( ap_list, lv_pct( 100 ) );
+    lv_obj_set_flex_grow( ap_list, 1 );
 
     /* Set the background for the popup modal */
     lv_style_init( &modal_style );
@@ -246,6 +216,4 @@ static void wifi_scan_task( void *pvParameters )
         }
         vTaskSuspend( NULL );
     }
-    
-    vTaskDelete( NULL ); // Should never get to here...
 }

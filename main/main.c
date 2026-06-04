@@ -47,6 +47,7 @@
 
 #include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "sound.h"
 #include "home.h"
 #include "wifi.h"
@@ -58,13 +59,29 @@
 #include "led_bar.h"
 #include "crypto.h"
 #include "cta.h"
+#include "screenshot.h"
 
 static const char *TAG = "MAIN";
 
 static void ui_start(void);
 static void tab_event_cb(lv_event_t *e);
+static void right_button_dispatch_cb( enum core2foraws_button_btns button, press_event_t event );
+
+static void screenshot_button_cb(enum core2foraws_button_btns button,
+                                  press_event_t event)
+{
+    if (button == BUTTON_MIDDLE && event == LONGPRESS)
+        screenshot_take();
+}
 
 static lv_obj_t *tab_view;
+static lv_obj_t *page_dots[10];
+static lv_obj_t *page_title_label;
+
+static battery_labels_t bat_labels;
+
+#define NUM_TABS 10
+
 TaskHandle_t    clock_handle,
                 led_bar_animation_handle, 
                 led_bar_solid_handle;
@@ -81,6 +98,9 @@ void app_main( void )
     core2foraws_init(); // Initializes the enabled hardware drivers and calls their respective initialization functions.
     
     ui_start(); // Starts all the sensor readings and shows them on the display using the LVGL library
+
+    screenshot_init();
+    core2foraws_button_register_callback(BUTTON_MIDDLE, LONGPRESS, screenshot_button_cb);
 }
 
 static void ui_start( void )
@@ -102,10 +122,73 @@ static void ui_start( void )
     lvgl_port_lock( 0 );
     lv_obj_clean( opener_scr );
     lv_obj_t *core2forAWS_obj = lv_obj_create( NULL );
+    lv_obj_set_style_bg_color( core2forAWS_obj, lv_color_hex( UI_SCREEN_BG_COLOR ), 0 );
+    lv_obj_set_style_bg_opa( core2forAWS_obj, LV_OPA_COVER, 0 );
     lv_screen_load_anim( core2forAWS_obj, LV_SCREEN_LOAD_ANIM_MOVE_LEFT, 400, 0, false );
-    tab_view = lv_tabview_create( core2forAWS_obj ); // tab_size=0 hides the tab buttons
+
+    /* Root layout: flex column → top_bar + tabview stack vertically */
+    lv_obj_set_layout( core2forAWS_obj, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( core2forAWS_obj, LV_FLEX_FLOW_COLUMN );
+    lv_obj_set_style_pad_all( core2forAWS_obj, 0, 0 );
+    lv_obj_set_style_pad_row( core2forAWS_obj, 0, 0 );
+
+    /* ── Top bar: absolute children → title left, dots center, battery right ── */
+    lv_obj_t *top_bar = lv_obj_create( core2forAWS_obj );
+    lv_obj_remove_style_all( top_bar );
+    lv_obj_set_size( top_bar, lv_pct( 100 ), 30 );
+    lv_obj_remove_flag( top_bar, LV_OBJ_FLAG_SCROLLABLE );
+
+    /* Page title label — pinned left */
+    page_title_label = lv_label_create( top_bar );
+    lv_label_set_text_static( page_title_label, "Home" );
+    lv_obj_set_style_text_color( page_title_label, lv_color_hex( 0xffffff ), 0 );
+    lv_obj_set_style_text_font( page_title_label, LV_FONT_DEFAULT, 0 );
+    lv_obj_align( page_title_label, LV_ALIGN_LEFT_MID, 12, 0 );
+
+    /* Dot indicators — true screen center */
+    lv_obj_t *dot_container = lv_obj_create( top_bar );
+    lv_obj_remove_style_all( dot_container );
+    lv_obj_set_size( dot_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT );
+    lv_obj_set_layout( dot_container, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( dot_container, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( dot_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_style_pad_column( dot_container, 6, 0 );
+    lv_obj_center( dot_container );
+
+    for ( int i = 0; i < NUM_TABS; i++ )
+    {
+        page_dots[i] = lv_obj_create( dot_container );
+        lv_obj_remove_style_all( page_dots[i] );
+        lv_obj_set_size( page_dots[i], 8, 8 );
+        lv_obj_set_style_radius( page_dots[i], LV_RADIUS_CIRCLE, 0 );
+        lv_obj_set_style_bg_opa( page_dots[i], LV_OPA_COVER, 0 );
+        lv_obj_set_style_bg_color( page_dots[i], ( i == 0 ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
+        lv_obj_remove_flag( page_dots[i], LV_OBJ_FLAG_CLICKABLE );
+    }
+
+    /* Battery — fixed container pinned right, glyphs centered inside */
+    lv_obj_t *battery_container = lv_obj_create( top_bar );
+    lv_obj_remove_style_all( battery_container );
+    lv_obj_set_size( battery_container, 22, 18 );
+    lv_obj_align( battery_container, LV_ALIGN_RIGHT_MID, -8, 0 );
+
+    bat_labels.battery_label = lv_label_create( battery_container );
+    lv_label_set_text( bat_labels.battery_label, LV_SYMBOL_BATTERY_FULL );
+    lv_obj_set_width( bat_labels.battery_label, 22 );
+    lv_obj_set_style_text_align( bat_labels.battery_label, LV_TEXT_ALIGN_CENTER, 0 );
+    lv_obj_set_style_text_color( bat_labels.battery_label, lv_color_hex( 0x0ab300 ), 0 );
+    lv_obj_center( bat_labels.battery_label );
+
+    bat_labels.charge_label = lv_label_create( battery_container );
+    lv_label_set_text( bat_labels.charge_label, "" );
+    lv_obj_center( bat_labels.charge_label );
+
+    /* ── Tabview: grows to fill remaining space ───────────────────────── */
+    tab_view = lv_tabview_create( core2forAWS_obj );
     lv_tabview_set_tab_bar_position( tab_view, LV_DIR_TOP );
     lv_tabview_set_tab_bar_size( tab_view, 0 );
+    lv_obj_set_width( tab_view, lv_pct( 100 ) );
+    lv_obj_set_flex_grow( tab_view, 1 );
     lv_obj_add_event_cb( tab_view, tab_event_cb, LV_EVENT_VALUE_CHANGED, NULL );
     
     lvgl_port_unlock();
@@ -115,15 +198,19 @@ static void ui_start( void )
     that read/write to the peripheral registers and displays the data from that peripheral.
     */
     display_home_tab( tab_view );
-    display_clock_tab( tab_view, core2forAWS_obj );
+    display_clock_tab( tab_view );
     display_mpu_tab( tab_view );
     display_microphone_tab( tab_view );
     display_LED_bar_tab( tab_view );
-    display_power_tab( tab_view, core2forAWS_obj );
+    display_power_tab( tab_view, &bat_labels );
     display_touch_tab( tab_view );
     display_crypto_tab( tab_view );
     display_wifi_tab( tab_view );
     display_cta_tab( tab_view );
+
+    /* Single BUTTON_RIGHT PRESS dispatch — registered last so it wins.
+     * Routes to the right handler depending on the active tab. */
+    core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, right_button_dispatch_cb );
 }
 
 static const char *tab_names[] = {
@@ -132,11 +219,34 @@ static const char *tab_names[] = {
     WIFI_TAB_NAME, CTA_TAB_NAME
 };
 
+/* Routes BUTTON_RIGHT PRESS to the correct tab handler */
+static void right_button_dispatch_cb( enum core2foraws_button_btns button, press_event_t event )
+{
+    lvgl_port_lock( 0 );
+    uint16_t idx = lv_tabview_get_tab_active( tab_view );
+    lvgl_port_unlock();
+    if ( strcmp( tab_names[ idx ], CLOCK_TAB_NAME ) == 0 )
+        clock_on_right_press();
+    else
+        touch_on_right_press();
+}
+
+static const char *tab_display_names[] = {
+    "Home", "Clock", "IMU", "Mic",
+    "LEDs", "Power", "Touch", "Crypto",
+    "Wi-Fi", "Next Steps"
+};
+
 static void tab_event_cb( lv_event_t *e )
 {
     uint16_t tab_idx = lv_tabview_get_tab_active( tab_view );
     const char *tab_name = tab_names[ tab_idx ];
     ESP_LOGI( TAG, "Current Active Tab: %s\n", tab_name );
+
+    /* Update page indicator dots */
+    for ( int i = 0; i < NUM_TABS; i++ )
+        lv_obj_set_style_bg_color( page_dots[i], ( i == tab_idx ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
+    lv_label_set_text_static( page_title_label, tab_display_names[ tab_idx ] );
 
     vTaskSuspend( MPU_handle );
     vTaskSuspend( mic_handle );

@@ -34,6 +34,7 @@
 
 #include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "power.h"
 
 static void led_event_handler( lv_event_t *e );
@@ -45,79 +46,53 @@ static const char *TAG = POWER_TAB_NAME;
 lv_obj_t *power_tab;
 TaskHandle_t power_handle;
 
-void display_power_tab( lv_obj_t *tv, lv_obj_t *core2forAWS_screen_obj )
+void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
 {
     lvgl_port_lock( 0 );
 
-    power_tab = lv_tabview_add_tab( tv, POWER_TAB_NAME );
-    lv_obj_set_style_pad_all( power_tab, 0, 0 );
+    power_tab = ui_tabview_add_tab( tv, POWER_TAB_NAME );
 
-    /* Create the main body object and set background within the tab*/
-    static lv_style_t bg_style;
-    lv_obj_t *power_bg = lv_obj_create( power_tab );
-    lv_obj_set_style_pad_all( power_bg, 0, 0 );
-    lv_obj_align( power_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
-    lv_obj_set_size( power_bg, 290, 190 );
-    lv_obj_remove_flag( power_bg, LV_OBJ_FLAG_CLICKABLE );
-    lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, lv_color_make( 255, 97, 56 ) );
-    lv_obj_add_style( power_bg, &bg_style, 0 );
+    /* Card with flex-column layout */
+    lv_obj_t *card = ui_create_card( power_tab, lv_color_make( 255, 97, 56 ) );
+    ui_card_title( card, "AXP192 Power Mgmt", lv_color_make(0,0,0) );
+    ui_card_text( card, "The AXP192 provides power management for the battery and on-board peripherals.\n\nTap to toggle:", lv_color_make(0,0,0) );
 
-    /* Create the title within the main body object */
-    static lv_style_t title_style;
-    lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
-    lv_style_set_text_color( &title_style, lv_color_make(0,0,0) );
-    lv_obj_t *tab_title_label = lv_label_create( power_bg );
-    lv_obj_add_style( tab_title_label, &title_style, 0 );
-    lv_label_set_text_static( tab_title_label, "AXP192 Power Mgmt" );
-    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
+    /* Button row: LED | Motor | Screen — horizontal flex */
+    lv_obj_t *btn_row = lv_obj_create( card );
+    lv_obj_remove_style_all( btn_row );
+    lv_obj_set_width( btn_row, lv_pct( 100 ) );
+    lv_obj_set_height( btn_row, LV_SIZE_CONTENT );
+    lv_obj_set_layout( btn_row, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( btn_row, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_flex_grow( btn_row, 1 );
 
-    /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( power_bg );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
-    lv_label_set_text_static( body_label, "The AXP192 provides power management for the battery and on-board peripherals.\n\nTap to toggle:" );
-    lv_obj_set_width( body_label, 252 );
-    lv_obj_align_to( body_label, power_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
-
-    static lv_style_t body_style;
-    lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, lv_color_make(0,0,0) );
-    lv_obj_add_style( body_label, &body_style, 0 );
-
-    /* Create buttons */
-    lv_obj_t *pwr_led_btn = lv_button_create( power_bg );
+    lv_obj_t *pwr_led_btn = lv_button_create( btn_row );
     lv_obj_set_size( pwr_led_btn, 76, 38 );
-    lv_obj_align( pwr_led_btn, LV_ALIGN_BOTTOM_LEFT, 20, -14 );
     lv_obj_add_flag( pwr_led_btn, LV_OBJ_FLAG_CHECKABLE );
     lv_obj_add_state( pwr_led_btn, LV_STATE_CHECKED );
     lv_obj_add_event_cb( pwr_led_btn, led_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
-
     lv_obj_t *led_label = lv_label_create( pwr_led_btn );
     lv_label_set_text_static( led_label, "LED" );
 
-    lv_obj_t *vibr_btn = lv_button_create( power_bg );
+    lv_obj_t *vibr_btn = lv_button_create( btn_row );
     lv_obj_set_size( vibr_btn, 76, 38 );
-    lv_obj_align( vibr_btn, LV_ALIGN_BOTTOM_MID, 0, -14 );
     lv_obj_add_flag( vibr_btn, LV_OBJ_FLAG_CHECKABLE );
     lv_obj_add_event_cb( vibr_btn, vibration_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
-
     lv_obj_t *vibr_label = lv_label_create( vibr_btn );
     lv_label_set_text_static( vibr_label, "Motor" );
 
-    lv_obj_t *scrn_btn = lv_button_create( power_bg );
+    lv_obj_t *scrn_btn = lv_button_create( btn_row );
     lv_obj_set_size( scrn_btn, 76, 38 );
-    lv_obj_align( scrn_btn, LV_ALIGN_BOTTOM_RIGHT, -20, -14 );
     lv_obj_add_flag( scrn_btn, LV_OBJ_FLAG_CHECKABLE );
     lv_obj_add_state( scrn_btn, LV_STATE_CHECKED );
     lv_obj_add_event_cb( scrn_btn, brightness_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
-
     lv_obj_t *brightness_label = lv_label_create( scrn_btn );
     lv_label_set_text_static( brightness_label, "Screen" );
 
     lvgl_port_unlock();
 
-    xTaskCreatePinnedToCore( battery_task, "batteryTask", configMINIMAL_STACK_SIZE * 2, ( void * ) core2forAWS_screen_obj, 0, &power_handle, 1 );
+    xTaskCreatePinnedToCore( battery_task, "batteryTask", configMINIMAL_STACK_SIZE * 2, ( void * ) bat_labels, 0, &power_handle, 1 );
 }
 
 static void brightness_event_handler( lv_event_t *e )
@@ -157,21 +132,19 @@ static void vibration_event_handler( lv_event_t *e )
 
 void battery_task( void *pvParameters )
 {
-    lvgl_port_lock( 0 );
-    lv_obj_t *battery_label = lv_label_create( ( lv_obj_t * )pvParameters );
-    lv_label_set_text( battery_label, LV_SYMBOL_BATTERY_FULL );
-    lv_obj_set_style_text_align( battery_label, LV_TEXT_ALIGN_CENTER, 0 );
-    lv_obj_align_to( battery_label, ( lv_obj_t * )pvParameters, LV_ALIGN_TOP_RIGHT, -20, 10 );
-    lv_obj_t *charge_label = lv_label_create( battery_label );
-    lv_label_set_text( charge_label, "" );
-    lv_obj_align( charge_label, LV_ALIGN_CENTER, -4, 0 );
-    lvgl_port_unlock();
+    battery_labels_t *labels = ( battery_labels_t * )pvParameters;
+    lv_obj_t *battery_label = labels->battery_label;
+    lv_obj_t *charge_label = labels->charge_label;
 
     for( ; ; )
     {
-        lvgl_port_lock( 0 );
         float battery_voltage;
         core2foraws_power_batt_volts_get( &battery_voltage );
+
+        bool charging;
+        core2foraws_power_plugged_get( &charging );
+
+        lvgl_port_lock( 0 );
         if (battery_voltage >= 4.100)
         {
             lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_FULL);
@@ -198,8 +171,6 @@ void battery_task( void *pvParameters )
             lv_obj_set_style_text_color(battery_label, lv_color_hex(0xff0000), 0);
         }
 
-        bool charging;
-        core2foraws_power_plugged_get( &charging );
         if ( charging )
         {
             lv_label_set_text( charge_label, LV_SYMBOL_CHARGE );
@@ -212,6 +183,4 @@ void battery_task( void *pvParameters )
         lvgl_port_unlock();
         vTaskDelay( pdMS_TO_TICKS( 200 ) );
     }
-
-    vTaskDelete( NULL ); // Should never get to here...
 }

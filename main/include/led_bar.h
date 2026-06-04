@@ -37,7 +37,6 @@ typedef struct Colors
 } colors;
 
 void display_LED_bar_tab( lv_obj_t *tv );
-void update_color();
 void sk6812_solid_task( void *pvParameters );
 void sk6812_animation_task( void *pvParameters );
 

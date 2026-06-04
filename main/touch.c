@@ -35,6 +35,7 @@
 
 #include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "touch.h"
 
 static const char *TAG = TOUCH_TAB_NAME;
@@ -51,51 +52,27 @@ void display_touch_tab( lv_obj_t *tv )
 {
     lvgl_port_lock( 0 );
 
-    lv_obj_t *touch_tab = lv_tabview_add_tab( tv, TOUCH_TAB_NAME );
-    lv_obj_set_style_pad_all( touch_tab, 0, 0 );
+    lv_obj_t *touch_tab = ui_tabview_add_tab( tv, TOUCH_TAB_NAME );
 
-    /* Create the main body object and set background within the tab*/
-    touch_bg = lv_obj_create( touch_tab );
-    lv_obj_set_style_pad_all( touch_bg, 0, 0 );
-    lv_obj_align( touch_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
-    lv_obj_set_size( touch_bg, 290, 190 );
-    lv_obj_remove_flag( touch_bg, LV_OBJ_FLAG_CLICKABLE );
+    /* Card — bg color is updated dynamically via touch callbacks */
+    touch_bg = ui_create_card( touch_tab, lv_color_make( r, g, b ) );
+    /* Store the initial bg_style for dynamic updates */
     lv_style_init( &bg_style );
     lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
     lv_obj_add_style( touch_bg, &bg_style, 0 );
 
-    /* Create the title within the main body object */
-    static lv_style_t title_style;
-    lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
-    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
-    lv_obj_t *tab_title_label = lv_label_create( touch_bg );
-    lv_obj_add_style( tab_title_label, &title_style, 0 );
-    lv_label_set_text_static( tab_title_label, "FT6336U Capacitive Touch" );
-    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
+    ui_card_title( touch_bg, "FT6336U Capacitive Touch", lv_color_make(255,255,255) );
+    ui_card_text( touch_bg, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
+        "\n\n\n\nPress the touch buttons below.", lv_color_make(255,255,255) );
 
-    /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( touch_bg );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
-    lv_label_set_text_static( body_label, "The FT6336U is a capacitive touch panel controller that provides X and Y coordinates for touch input."
-        "\n\n\n\nPress the touch buttons below." );
-    lv_obj_set_width( body_label, 252 );
-    lv_obj_align_to( body_label, touch_bg, LV_ALIGN_TOP_LEFT, 20, 40 );
-
-    static lv_style_t body_style;
-    lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, lv_color_make(255,255,255) );
-    lv_obj_add_style( body_label, &body_style, 0 );
-    
     button_touch_label = lv_label_create( touch_bg );
     lv_label_set_text( button_touch_label, "No button tapped" );
     lv_obj_set_style_text_align( button_touch_label, LV_TEXT_ALIGN_CENTER, 0 );
-    lv_obj_align( button_touch_label, LV_ALIGN_CENTER, 0, 44 );
+    lv_obj_set_width( button_touch_label, lv_pct( 100 ) );
 
-    /*Create an array for the points of the line*/
+    /* Touch button indicator lines — flex row at bottom of tab */
     static lv_point_precise_t line_points[] = { {20, 0}, {70, 0} };
 
-    /*Create style*/
     static lv_style_t red_line_style;
     lv_style_init( &red_line_style );
     lv_style_set_line_width( &red_line_style, 6 );
@@ -114,27 +91,32 @@ void display_touch_tab( lv_obj_t *tv )
     lv_style_set_line_color( &blue_line_style, lv_palette_main( LV_PALETTE_BLUE ) );
     lv_style_set_line_rounded( &blue_line_style, true );
 
-    /*Create a line and apply the new style*/
-    lv_obj_t *left_line = lv_line_create( touch_tab );
+    /* Line container: flex row for the three button indicator lines */
+    lv_obj_t *line_row = lv_obj_create( touch_tab );
+    lv_obj_remove_style_all( line_row );
+    lv_obj_set_width( line_row, lv_pct( 90 ) );
+    lv_obj_set_height( line_row, 10 );
+    lv_obj_set_layout( line_row, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( line_row, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( line_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+
+    lv_obj_t *left_line = lv_line_create( line_row );
     lv_line_set_points( left_line, line_points, 2 );
     lv_obj_add_style( left_line, &red_line_style, 0 );
-    lv_obj_align( left_line, LV_ALIGN_LEFT_MID, 8, 108 );
 
-    lv_obj_t *middle_line = lv_line_create( touch_tab );
+    lv_obj_t *middle_line = lv_line_create( line_row );
     lv_line_set_points( middle_line, line_points, 2 );
     lv_obj_add_style( middle_line, &green_line_style, 0 );
-    lv_obj_align( middle_line, LV_ALIGN_CENTER, -12, 108 );
     
-    lv_obj_t *right_line = lv_line_create( touch_tab );
+    lv_obj_t *right_line = lv_line_create( line_row );
     lv_line_set_points( right_line, line_points, 2 );
     lv_obj_add_style( right_line, &blue_line_style, 0 );
-    lv_obj_align( right_line, LV_ALIGN_RIGHT_MID, -30, 108 );
 
     lvgl_port_unlock();
 
     core2foraws_button_register_callback( BUTTON_LEFT, PRESS, touch_button_callback );
     core2foraws_button_register_callback( BUTTON_MIDDLE, PRESS, touch_button_callback );
-    core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, touch_button_callback );
+    /* BUTTON_RIGHT PRESS is dispatched centrally from main.c */
 }
 
 void reset_touch_bg()
@@ -142,6 +124,18 @@ void reset_touch_bg()
     r=0x00, g=0x00, b=0x00;
     lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
     lv_obj_add_style( touch_bg, &bg_style, 0 );
+}
+
+void touch_on_right_press( void )
+{
+    ESP_LOGI( TAG, "Right button was tapped" );
+    b += 0x10;
+
+    lvgl_port_lock( 0 );
+    lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
+    lv_obj_add_style( touch_bg, &bg_style, 0 );
+    lv_label_set_text( button_touch_label, "Right button" );
+    lvgl_port_unlock();
 }
 
 static void touch_button_callback( enum core2foraws_button_btns button, press_event_t event )
@@ -172,13 +166,6 @@ static void touch_button_callback( enum core2foraws_button_btns button, press_ev
     }
     else if ( button == BUTTON_RIGHT )
     {
-        ESP_LOGI( TAG, "Right button was tapped" );
-        b += 0x10;
-
-        lvgl_port_lock( 0 );
-        lv_style_set_bg_color( &bg_style, lv_color_make( r, g, b ) );
-        lv_obj_add_style( touch_bg, &bg_style, 0 );
-        lv_label_set_text( button_touch_label, "Right button" );
-        lvgl_port_unlock();
+        touch_on_right_press();
     }
 }

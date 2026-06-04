@@ -36,6 +36,7 @@
 
 #include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "mpu.h"
 
 /* 
@@ -67,83 +68,108 @@ void display_mpu_tab(lv_obj_t *tv)
 {
     lvgl_port_lock( 0 );
     
-    lv_obj_t *mpu_tab = lv_tabview_add_tab(tv, MPU_TAB_NAME);
-    lv_obj_set_style_pad_all( mpu_tab, 0, 0 );
-    /* Create the main body object and set background within the tab*/
-    static lv_style_t bg_style;
-    lv_obj_t *mpu_bg = lv_obj_create( mpu_tab );
-    lv_obj_set_style_pad_all( mpu_bg, 0, 0 );
-    lv_obj_align( mpu_bg, LV_ALIGN_TOP_LEFT, 16, 36 );
-    lv_obj_set_size( mpu_bg, 290, 190 );
-    lv_obj_remove_flag( mpu_bg, LV_OBJ_FLAG_CLICKABLE );
-    lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, lv_color_make( 169, 0, 103 ) );
-    lv_obj_add_style( mpu_bg, &bg_style, 0 );
+    lv_obj_t *mpu_tab = ui_tabview_add_tab(tv, MPU_TAB_NAME);
 
-    /* Create the title within the main body object */
-    static lv_style_t title_style;
-    lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_FONT_DEFAULT );
-    lv_style_set_text_color( &title_style, lv_color_make(255,255,255) );
-    lv_obj_t *tab_title_label = lv_label_create( mpu_bg );
-    lv_obj_add_style( tab_title_label, &title_style, 0 );
-    lv_label_set_text_static( tab_title_label, "MPU6886 IMU Sensor" );
-    lv_obj_align( tab_title_label, LV_ALIGN_TOP_MID, 0, 10 );
+    /* Single card, with title + side-by-side content + legend */
+    lv_obj_t *card = ui_create_card( mpu_tab, lv_color_make( 169, 0, 103 ) );
+    ui_card_title( card, "MPU6886 IMU Sensor", lv_color_make(255,255,255) );
+    lv_obj_set_style_pad_row( card, 8, 0 );
 
-    /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( mpu_bg );
+    /* Content row: slightly more space to the description, slightly smaller gauge */
+    lv_obj_t *content_row = lv_obj_create( card );
+    lv_obj_remove_style_all( content_row );
+    lv_obj_set_width( content_row, lv_pct( 100 ) );
+    lv_obj_set_height( content_row, 104 );
+    lv_obj_set_layout( content_row, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( content_row, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( content_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_style_pad_column( content_row, 8, 0 );
+
+    /* Description area: wider than before so the copy wraps less aggressively */
+    lv_obj_t *copy_wrap = lv_obj_create( content_row );
+    lv_obj_remove_style_all( copy_wrap );
+    lv_obj_set_size( copy_wrap, 154, lv_pct( 100 ) );
+    lv_obj_set_layout( copy_wrap, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( copy_wrap, LV_FLEX_FLOW_COLUMN );
+    lv_obj_set_flex_align( copy_wrap, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START );
+
+    lv_obj_t *body_label = lv_label_create( copy_wrap );
     lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
-    lv_label_set_text_static( body_label, "The Inertial Measurement Unit (IMU) senses the motion of the device." );
-    lv_obj_set_width( body_label, 120 );
-    lv_obj_align( body_label, LV_ALIGN_LEFT_MID, 20, 0 );
+    lv_label_set_text_static( body_label,
+                              "The Inertial\n"
+                              "Measurement\n"
+                              "Unit (IMU)\n"
+                              "senses the\n"
+                              "motion of the\n"
+                              "device." );
+    lv_obj_set_width( body_label, lv_pct( 100 ) );
+    lv_obj_set_style_text_color( body_label, lv_color_make(255,255,255), 0 );
+    lv_obj_set_style_text_line_space( body_label, 0, 0 );
 
-    static lv_style_t body_style;
-    lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, lv_color_make(255,255,255) );
-    lv_obj_add_style( body_label, &body_style, 0 );
+    /* Gauge area: slightly smaller with much smaller scale text */
+    lv_obj_t *meter_wrap = lv_obj_create( content_row );
+    lv_obj_remove_style_all( meter_wrap );
+    lv_obj_set_size( meter_wrap, 110, lv_pct( 100 ) );
+    lv_obj_set_layout( meter_wrap, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( meter_wrap, LV_FLEX_FLOW_COLUMN );
+    lv_obj_set_flex_align( meter_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
 
-    /* Create the sensor color legend */
-    lv_obj_t *lgnd_bg = lv_obj_create( mpu_bg );
-    lv_obj_set_size( lgnd_bg, 200, 24 );
-    lv_obj_align( lgnd_bg, LV_ALIGN_BOTTOM_MID, 0, -10 );
-    lv_obj_set_style_bg_color( lgnd_bg, lv_color_make(255,255,255), 0 );
-    lv_obj_t *legend_label_x = lv_label_create( lgnd_bg );
-    lv_label_set_text_static( legend_label_x, "Rot_X" );
-    lv_obj_set_style_text_color( legend_label_x, lv_color_hex(0xff0000), 0 );
-    lv_obj_align( legend_label_x, LV_ALIGN_LEFT_MID, 4, 0 );
-    lv_obj_t *legend_label_y = lv_label_create( lgnd_bg );
-    lv_label_set_text_static( legend_label_y, "Rot_Y" );
-    lv_obj_set_style_text_color( legend_label_y, lv_color_hex(0x008000), 0 );
-    lv_obj_align( legend_label_y, LV_ALIGN_CENTER, 0, 0 );
-    lv_obj_t *legend_label_z = lv_label_create( lgnd_bg );
-    lv_label_set_text_static( legend_label_z, "Rot_Z" );
-    lv_obj_set_style_text_color( legend_label_z, lv_color_hex(0x0000ff), 0 );
-    lv_obj_align( legend_label_z, LV_ALIGN_RIGHT_MID, -4, 0 );
-    
-    /* Create a scale (replaces meter in LVGL 9) */
-    lv_obj_t *meter = lv_scale_create( mpu_bg );
+    lv_obj_t *meter = lv_scale_create( meter_wrap );
     lv_obj_remove_flag( meter, LV_OBJ_FLAG_CLICKABLE );
-    lv_obj_set_size( meter, 106, 106 );
+    lv_obj_set_size( meter, 94, 94 );
     lv_scale_set_mode( meter, LV_SCALE_MODE_ROUND_INNER );
     lv_scale_set_range( meter, -400, 400 );
     lv_scale_set_angle_range( meter, 300 );
     lv_scale_set_rotation( meter, 120 );
     lv_scale_set_total_tick_count( meter, 11 );
     lv_scale_set_major_tick_every( meter, 2 );
-    lv_obj_set_style_length( meter, 10, LV_PART_INDICATOR );
-    lv_obj_set_style_length( meter, 5, LV_PART_ITEMS );
+
+    lv_obj_set_style_length( meter, 8, LV_PART_INDICATOR );
+    lv_obj_set_style_length( meter, 4, LV_PART_ITEMS );
+    lv_obj_set_style_line_width( meter, 1, LV_PART_ITEMS );
+    lv_obj_set_style_line_width( meter, 1, LV_PART_INDICATOR );
+    lv_obj_set_style_text_font( meter, &lv_font_montserrat_8, 0 );
+    lv_obj_set_style_text_color( meter, lv_color_make( 255, 255, 255 ), 0 );
+    lv_obj_set_style_text_opa( meter, LV_OPA_90, 0 );
+    lv_obj_set_style_text_letter_space( meter, -1, 0 );
 
     needle_x = lv_line_create( meter );
     lv_obj_set_style_line_color( needle_x, lv_palette_main( LV_PALETTE_RED ), 0 );
     lv_obj_set_style_line_width( needle_x, 2, 0 );
+
     needle_y = lv_line_create( meter );
     lv_obj_set_style_line_color( needle_y, lv_palette_main( LV_PALETTE_GREEN ), 0 );
     lv_obj_set_style_line_width( needle_y, 2, 0 );
+
     needle_z = lv_line_create( meter );
     lv_obj_set_style_line_color( needle_z, lv_palette_main( LV_PALETTE_BLUE ), 0 );
     lv_obj_set_style_line_width( needle_z, 2, 0 );
 
-    lv_obj_align( meter, LV_ALIGN_RIGHT_MID, -20, 0 );
+    /* Compact legend row at bottom of card */
+    lv_obj_t *lgnd_bg = lv_obj_create( card );
+    lv_obj_set_size( lgnd_bg, lv_pct( 80 ), 24 );
+    lv_obj_set_style_bg_color( lgnd_bg, lv_color_make(255,255,255), 0 );
+    lv_obj_set_style_bg_opa( lgnd_bg, LV_OPA_COVER, 0 );
+    lv_obj_set_style_border_width( lgnd_bg, 0, 0 );
+    lv_obj_set_style_radius( lgnd_bg, 4, 0 );
+    lv_obj_set_layout( lgnd_bg, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( lgnd_bg, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( lgnd_bg, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_style_pad_all( lgnd_bg, 2, 0 );
+    lv_obj_set_style_margin_top( lgnd_bg, -8, 0 );
+
+    lv_obj_t *legend_label_x = lv_label_create( lgnd_bg );
+    lv_label_set_text_static( legend_label_x, "Rot_X" );
+    lv_obj_set_style_text_color( legend_label_x, lv_color_hex(0xff0000), 0 );
+
+    lv_obj_t *legend_label_y = lv_label_create( lgnd_bg );
+    lv_label_set_text_static( legend_label_y, "Rot_Y" );
+    lv_obj_set_style_text_color( legend_label_y, lv_color_hex(0x008000), 0 );
+
+    lv_obj_t *legend_label_z = lv_label_create( lgnd_bg );
+    lv_label_set_text_static( legend_label_z, "Rot_Z" );
+    lv_obj_set_style_text_color( legend_label_z, lv_color_hex(0x0000ff), 0 );
+
     lvgl_port_unlock();
     
     xTaskCreatePinnedToCore( MPU_task, "MPUTask", 2048, ( void * ) meter, 1, &MPU_handle, 1 );
@@ -171,7 +197,7 @@ void MPU_task( void *pvParameters )
         core2foraws_motion_accel_get( &ax, &ay, &az );
         core2foraws_motion_gyro_get( &gx, &gy, &gz );
 
-        ESP_LOGI( TAG, "Raw Accel: X-%.6f Y-%.6f Z-%.6f | Gyro: X-%.6f Y-%.6fZ- %.6f", ax, ay, az, gx, gy, gz );
+        ESP_LOGD( TAG, "Raw Accel: X-%.2f Y-%.2f Z-%.2f | Gyro: X-%.2f Y-%.2f Z-%.2f", ax, ay, az, gx, gy, gz );
 
         lv_obj_t *meter = ( lv_obj_t * )pvParameters;
         
@@ -183,5 +209,4 @@ void MPU_task( void *pvParameters )
         
         vTaskDelay( pdMS_TO_TICKS( 30 ) );
     }
-    vTaskDelete( NULL ); // Should never get to here...
 }
