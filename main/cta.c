@@ -63,5 +63,5 @@ void display_cta_tab( lv_obj_t *tv )
     
     lvgl_port_unlock();
 
-    ESP_LOGI( TAG, "Displaying tab" );
+    ESP_LOGD( TAG, "Building tab" );
 }

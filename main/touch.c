@@ -50,6 +50,7 @@ static void touch_button_callback( enum core2foraws_button_btns button, press_ev
 
 void display_touch_tab( lv_obj_t *tv )
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
 
     lv_obj_t *touch_tab = ui_tabview_add_tab( tv, TOUCH_TAB_NAME );

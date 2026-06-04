@@ -41,6 +41,7 @@ static const char *TAG = HOME_TAB_NAME;
 
 void display_home_tab( lv_obj_t *tv )
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
     
     lv_obj_t *home_tab = ui_tabview_add_tab( tv, HOME_TAB_NAME );

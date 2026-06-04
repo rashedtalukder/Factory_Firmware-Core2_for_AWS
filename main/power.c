@@ -48,6 +48,7 @@ TaskHandle_t power_handle;
 
 void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
 
     power_tab = ui_tabview_add_tab( tv, POWER_TAB_NAME );
@@ -144,7 +145,14 @@ void battery_task( void *pvParameters )
         bool charging;
         core2foraws_power_plugged_get( &charging );
 
-        lvgl_port_lock( 0 );
+        /* Bounded wait with padding so a wedged render loop can't deadlock
+         * this periodic task; skip the update if the mutex isn't free. */
+        if ( !lvgl_port_lock( 1000 ) )
+        {
+            ESP_LOGW( TAG, "LVGL lock timeout; skipping battery update" );
+            vTaskDelay( pdMS_TO_TICKS( 200 ) );
+            continue;
+        }
         if (battery_voltage >= 4.100)
         {
             lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_FULL);

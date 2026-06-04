@@ -59,6 +59,7 @@ static void _on_sta_start( void *arg, esp_event_base_t base, int32_t id, void *d
 
 void display_wifi_tab( lv_obj_t *tv )
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
 
     lv_obj_t *wifi_tab = ui_tabview_add_tab( tv, WIFI_TAB_NAME );
@@ -78,7 +79,8 @@ void display_wifi_tab( lv_obj_t *tv )
     lv_style_set_bg_color( &modal_style, lv_color_make(0,0,0) );
 
     lvgl_port_unlock();
-    xTaskCreatePinnedToCore( wifi_scan_task, "WiFiScanTask", configMINIMAL_STACK_SIZE * 4, (void*)ap_list, 1, &wifi_handle, 1 );
+    if ( xTaskCreatePinnedToCore( wifi_scan_task, "WiFiScanTask", configMINIMAL_STACK_SIZE * 4, (void*)ap_list, 1, &wifi_handle, 1 ) != pdPASS )
+        ESP_LOGE( TAG, "Failed to create WiFiScanTask (low internal memory)" );
 }
 
 static void opa_anim( void *bg, int32_t v )
@@ -110,7 +112,7 @@ static void event_handler( lv_event_t *e )
     if ( code == LV_EVENT_CLICKED )
     {
         lv_obj_t *list = lv_obj_get_parent( btn );
-        printf( "Clicked: %s\n", lv_list_get_button_text( list, btn ) );
+        ESP_LOGI( TAG, "AP selected: %s", lv_list_get_button_text( list, btn ) );
         lv_obj_t *modal_bg = lv_obj_create( lv_screen_active() );
         lv_obj_remove_style_all( modal_bg );
         lv_obj_add_style( modal_bg, &modal_style, 0 );
@@ -179,9 +181,15 @@ static void wifi_scan_task( void *pvParameters )
 
     while( 1 )
     {
-        lvgl_port_lock( 0 );
-        lv_obj_clean( ( lv_obj_t * )pvParameters );
-        lvgl_port_unlock();
+        if ( lvgl_port_lock( 1000 ) )
+        {
+            lv_obj_clean( ( lv_obj_t * )pvParameters );
+            lvgl_port_unlock();
+        }
+        else
+        {
+            ESP_LOGW( TAG, "LVGL lock timeout; skipping scan-list clear" );
+        }
 
         esp_err_t scan_err = esp_wifi_scan_start( NULL, true );
         if ( scan_err != ESP_OK )
@@ -205,10 +213,16 @@ static void wifi_scan_task( void *pvParameters )
         
         for ( int i = 0; ( i < DEFAULT_SCAN_LIST_SIZE ) && ( i < ap_count ); i++ )
         {
-            lvgl_port_lock( 0 );
-            list_btn = lv_list_add_button( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ( char * )ap_info[ i ].ssid );
-            lv_obj_add_event_cb( list_btn, event_handler, LV_EVENT_CLICKED, NULL );
-            lvgl_port_unlock();
+            if ( lvgl_port_lock( 1000 ) )
+            {
+                list_btn = lv_list_add_button( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ( char * )ap_info[ i ].ssid );
+                lv_obj_add_event_cb( list_btn, event_handler, LV_EVENT_CLICKED, NULL );
+                lvgl_port_unlock();
+            }
+            else
+            {
+                ESP_LOGW( TAG, "LVGL lock timeout; skipping AP list entry" );
+            }
 
             ESP_LOGI( TAG, "SSID \t\t%s", ap_info[ i ].ssid );
             ESP_LOGI( TAG, "RSSI \t\t%d", ap_info[ i ].rssi );

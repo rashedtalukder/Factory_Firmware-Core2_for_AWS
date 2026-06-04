@@ -94,6 +94,7 @@ static void build_two_digit_options( char *buffer, size_t buffer_size, int count
 
 void display_clock_tab( lv_obj_t *tv )
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
     clock_tab = ui_tabview_add_tab( tv, CLOCK_TAB_NAME );
 
@@ -150,8 +151,7 @@ void display_clock_tab( lv_obj_t *tv )
 }
 
 void clock_task( void *pvParameters )
-{
-    for( ; ; )
+{    for( ; ; )
     {
         /* Wake once per second to refresh the live time, or immediately when
          * the clock tab is (re)opened (update_roller_time() notifies us). */
@@ -162,15 +162,24 @@ void clock_task( void *pvParameters )
         char clock_buf[ 26 ];
         strftime( clock_buf, 26, "%I:%M:%S %p", &current_time );
 
-        lvgl_port_lock( 0 );
-        lv_label_set_text( time_label, clock_buf );
-        if( refresh_rollers )
+        /* Bounded wait with padding: a healthy LVGL loop frees the mutex
+         * within a few ms. If the render loop is wedged, skip this refresh
+         * instead of blocking forever (which would deadlock this task too). */
+        if ( lvgl_port_lock( 1000 ) )
         {
-            lv_roller_set_selected( hour_roller, current_time.tm_hour, LV_ANIM_OFF );
-            lv_roller_set_selected( minute_roller, current_time.tm_min, LV_ANIM_OFF );
-            lv_label_set_text_static( set_confirm_label, "Set" );
-            lv_obj_set_style_text_color( set_confirm_label, lv_color_hex( UI_ACCENT_COLOR ), 0 );
+            lv_label_set_text( time_label, clock_buf );
+            if( refresh_rollers )
+            {
+                lv_roller_set_selected( hour_roller, current_time.tm_hour, LV_ANIM_OFF );
+                lv_roller_set_selected( minute_roller, current_time.tm_min, LV_ANIM_OFF );
+                lv_label_set_text_static( set_confirm_label, "Set" );
+                lv_obj_set_style_text_color( set_confirm_label, lv_color_hex( UI_ACCENT_COLOR ), 0 );
+            }
+            lvgl_port_unlock();
         }
-        lvgl_port_unlock();
+        else
+        {
+            ESP_LOGW( TAG, "LVGL lock timeout; skipping clock refresh" );
+        }
     }
 }

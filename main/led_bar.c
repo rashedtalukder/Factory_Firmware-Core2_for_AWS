@@ -53,6 +53,7 @@ static void blue_event_handler(lv_event_t *e);
 
 void display_LED_bar_tab(lv_obj_t *tv)
 {
+    ESP_LOGD( TAG, "Building tab" );
     color_lock = xSemaphoreCreateMutex();
 
     lvgl_port_lock( 0 );
@@ -109,9 +110,10 @@ void display_LED_bar_tab(lv_obj_t *tv)
 
     lvgl_port_unlock();
     
-    xTaskCreatePinnedToCore( sk6812_animation_task, "sk6812AnimationTask", configMINIMAL_STACK_SIZE * 3, NULL, 1, &led_bar_animation_handle, 1 );
-    xTaskCreatePinnedToCore( sk6812_solid_task, "sk6812SolidTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &led_bar_solid_handle, 1 );
-
+    if ( xTaskCreatePinnedToCore( sk6812_animation_task, "sk6812AnimationTask", configMINIMAL_STACK_SIZE * 3, NULL, 1, &led_bar_animation_handle, 1 ) != pdPASS )
+        ESP_LOGE( TAG, "Failed to create sk6812AnimationTask (low internal memory)" );
+    if ( xTaskCreatePinnedToCore( sk6812_solid_task, "sk6812SolidTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &led_bar_solid_handle, 1 ) != pdPASS )
+        ESP_LOGE( TAG, "Failed to create sk6812SolidTask (low internal memory)" );
 }
 
 static void red_event_handler( lv_event_t *e )
@@ -158,7 +160,7 @@ void sk6812_solid_task( void *pvParameters )
             core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, ( current_red << 16 ) + ( current_green << 8 ) + ( current_blue ) );
             core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, ( current_red << 16 ) + ( current_green << 8 ) + ( current_blue ) );
             core2foraws_rgb_led_write();
-            ESP_LOGI( TAG, "Color changed to #%.2x%.2x%.2x", current_red, current_green, current_blue );
+            ESP_LOGD( TAG, "Color changed to #%.2x%.2x%.2x", current_red, current_green, current_blue );
         }
         vTaskDelay( pdMS_TO_TICKS( 10 ) );
     };

@@ -29,18 +29,28 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
+#include "esp_log.h"
+
 #include "core2foraws.h"
 
 #include "sound.h"
 
+static const char *TAG = "SOUND";
+
 void sound_task( void *pvParameters )
 {
+    ESP_LOGD( TAG, "Playing startup sound" );
     esp_err_t err = core2foraws_audio_speaker_enable( true );
     if ( err == ESP_OK )
     {    
         extern const unsigned char music[ 120264 ];
         core2foraws_audio_speaker_write( ( const uint8_t * )music, 120264 );
         core2foraws_audio_speaker_enable( false );
+        ESP_LOGD( TAG, "Startup sound finished" );
+    }
+    else
+    {
+        ESP_LOGE( TAG, "Failed to enable speaker: %s", esp_err_to_name( err ) );
     }
 
     vTaskDelete( NULL ); // Deletes the current task from FreeRTOS task list and the FreeRTOS idle task will remove from memory.

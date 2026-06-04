@@ -60,6 +60,9 @@
 #include "crypto.h"
 #include "cta.h"
 #include "screenshot.h"
+#ifdef CONFIG_UITEST_ENABLED
+#include "uitest.h"
+#endif
 
 static const char *TAG = "MAIN";
 
@@ -96,11 +99,18 @@ void app_main( void )
     esp_log_level_set( "ILI9341", ESP_LOG_NONE );
 
     core2foraws_init(); // Initializes the enabled hardware drivers and calls their respective initialization functions.
-    
+    ESP_LOGI( TAG, "Hardware drivers initialized" );
+
     ui_start(); // Starts all the sensor readings and shows them on the display using the LVGL library
+
+#ifdef CONFIG_UITEST_ENABLED
+    uitest_init();
+#endif
 
     screenshot_init();
     core2foraws_button_register_callback(BUTTON_MIDDLE, LONGPRESS, screenshot_button_cb);
+
+    ESP_LOGI( TAG, "Factory firmware ready" );
 }
 
 static void ui_start( void )
@@ -197,6 +207,7 @@ static void ui_start( void )
     Below creates all the display layers for the various peripheral tabs. Some of the tabs also starts the concurrent FreeRTOS tasks 
     that read/write to the peripheral registers and displays the data from that peripheral.
     */
+    ESP_LOGD( TAG, "Building UI tabs" );
     display_home_tab( tab_view );
     display_clock_tab( tab_view );
     display_mpu_tab( tab_view );
@@ -211,6 +222,8 @@ static void ui_start( void )
     /* Single BUTTON_RIGHT PRESS dispatch — registered last so it wins.
      * Routes to the right handler depending on the active tab. */
     core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, right_button_dispatch_cb );
+
+    ESP_LOGD( TAG, "UI ready" );
 }
 
 static const char *tab_names[] = {
@@ -225,6 +238,7 @@ static void right_button_dispatch_cb( enum core2foraws_button_btns button, press
     lvgl_port_lock( 0 );
     uint16_t idx = lv_tabview_get_tab_active( tab_view );
     lvgl_port_unlock();
+    ESP_LOGD( TAG, "Right button pressed on tab: %s", tab_names[ idx ] );
     if ( strcmp( tab_names[ idx ], CLOCK_TAB_NAME ) == 0 )
         clock_on_right_press();
     else
@@ -241,38 +255,46 @@ static void tab_event_cb( lv_event_t *e )
 {
     uint16_t tab_idx = lv_tabview_get_tab_active( tab_view );
     const char *tab_name = tab_names[ tab_idx ];
-    ESP_LOGI( TAG, "Current Active Tab: %s\n", tab_name );
+    ESP_LOGI( TAG, "Active tab: %s", tab_name );
 
     /* Update page indicator dots */
     for ( int i = 0; i < NUM_TABS; i++ )
         lv_obj_set_style_bg_color( page_dots[i], ( i == tab_idx ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
     lv_label_set_text_static( page_title_label, tab_display_names[ tab_idx ] );
 
-    vTaskSuspend( MPU_handle );
-    vTaskSuspend( mic_handle );
-    vTaskSuspend( FFT_handle );
-    vTaskSuspend( wifi_handle );
-    vTaskSuspend( led_bar_solid_handle );
-    vTaskResume( led_bar_animation_handle );
-    
+    /* Suspend all per-tab worker tasks. These are guarded against NULL: a task
+     * handle is NULL if its xTaskCreate failed (e.g. low internal RAM). Passing
+     * NULL to vTaskSuspend() would suspend THIS task (taskLVGL) while it holds
+     * the LVGL lock, hanging the whole UI — so every handle must be checked. */
+    if ( MPU_handle )            vTaskSuspend( MPU_handle );
+    if ( mic_handle )            vTaskSuspend( mic_handle );
+    if ( FFT_handle )            vTaskSuspend( FFT_handle );
+    if ( wifi_handle )           vTaskSuspend( wifi_handle );
+    if ( led_bar_solid_handle )  vTaskSuspend( led_bar_solid_handle );
+    if ( led_bar_animation_handle ) vTaskResume( led_bar_animation_handle );
+
     if ( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 )
         update_roller_time();
     else if ( strcmp( tab_name, MPU_TAB_NAME ) == 0 )
-        vTaskResume( MPU_handle );
+    {
+        if ( MPU_handle ) vTaskResume( MPU_handle );
+    }
     else if (strcmp( tab_name, MICROPHONE_TAB_NAME ) == 0 )
     {
-        vTaskResume( mic_handle );
-        vTaskResume( FFT_handle );
+        if ( mic_handle ) vTaskResume( mic_handle );
+        if ( FFT_handle ) vTaskResume( FFT_handle );
     } 
     else if ( strcmp( tab_name, LED_BAR_TAB_NAME ) == 0 )
     {
-        vTaskSuspend( led_bar_animation_handle );
-        vTaskResume( led_bar_solid_handle );
+        if ( led_bar_animation_handle ) vTaskSuspend( led_bar_animation_handle );
+        if ( led_bar_solid_handle )     vTaskResume( led_bar_solid_handle );
     }
     else if ( strcmp( tab_name, TOUCH_TAB_NAME ) == 0 )
     {
         reset_touch_bg();
     }
     else if ( strcmp( tab_name, WIFI_TAB_NAME ) == 0 )
-        vTaskResume( wifi_handle );
+    {
+        if ( wifi_handle ) vTaskResume( wifi_handle );
+    }
 }

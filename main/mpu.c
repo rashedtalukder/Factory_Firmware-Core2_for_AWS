@@ -66,6 +66,7 @@ static lv_obj_t *needle_z;
 
 void display_mpu_tab(lv_obj_t *tv)
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
     
     lv_obj_t *mpu_tab = ui_tabview_add_tab(tv, MPU_TAB_NAME);
@@ -201,11 +202,19 @@ void MPU_task( void *pvParameters )
 
         lv_obj_t *meter = ( lv_obj_t * )pvParameters;
         
-        lvgl_port_lock( 0 );
-        lv_scale_set_line_needle_value( meter, needle_x, 40, ( int ) ( gx-calib_gx ));
-        lv_scale_set_line_needle_value( meter, needle_y, 40, ( int ) ( gy-calib_gy ));
-        lv_scale_set_line_needle_value( meter, needle_z, 40, ( int ) ( gz-calib_gz ));
-        lvgl_port_unlock(); 
+        /* Bounded wait with padding; skip this needle update if the LVGL
+         * render loop is busy rather than blocking this task forever. */
+        if ( lvgl_port_lock( 1000 ) )
+        {
+            lv_scale_set_line_needle_value( meter, needle_x, 40, ( int ) ( gx-calib_gx ));
+            lv_scale_set_line_needle_value( meter, needle_y, 40, ( int ) ( gy-calib_gy ));
+            lv_scale_set_line_needle_value( meter, needle_z, 40, ( int ) ( gz-calib_gz ));
+            lvgl_port_unlock(); 
+        }
+        else
+        {
+            ESP_LOGW( TAG, "LVGL lock timeout; skipping IMU needle update" );
+        }
         
         vTaskDelay( pdMS_TO_TICKS( 30 ) );
     }

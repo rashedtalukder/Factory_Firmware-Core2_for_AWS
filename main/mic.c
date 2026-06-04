@@ -88,7 +88,7 @@ void display_microphone_tab(lv_obj_t *tv)
 
     lvgl_port_unlock();
 
-    ESP_LOGI(TAG,"Displaying tab");
+    ESP_LOGD(TAG,"Building tab");
 
     xTaskCreatePinnedToCore(
         fft_show_task,
@@ -253,7 +253,13 @@ void fft_show_task(void *pvParameters)
             pdMS_TO_TICKS(10)
         )==pdPASS)
         {
-            lvgl_port_lock(0);
+            /* Bounded wait with padding; drop this spectrum column if the
+             * LVGL render loop is busy rather than blocking forever. */
+            if(!lvgl_port_lock(1000))
+            {
+                ESP_LOGW(TAG,"LVGL lock timeout; skipping spectrum column");
+                continue;
+            }
 
             for(uint16_t y=0;y<CANVAS_HEIGHT;y++)
             {

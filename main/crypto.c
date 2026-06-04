@@ -42,6 +42,7 @@ static const char *TAG = CRYPTO_TAB_NAME;
 
 void display_crypto_tab( lv_obj_t *tv )
 {
+    ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
 
     lv_obj_t *crypto_tab = ui_tabview_add_tab( tv, CRYPTO_TAB_NAME );
@@ -63,6 +64,7 @@ void display_crypto_tab( lv_obj_t *tv )
     esp_err_t ret = core2foraws_crypto_serial_get( device_serial );
     if ( ret == ESP_OK )
     {
+        ESP_LOGD( TAG, "Secure element serial: %s", device_serial );
         char sn_pretext[] = "Serial  # ";
         size_t sn_pretext_len = strlen( sn_pretext );
         char sn_label_text[ CRYPTO_SERIAL_STR_SIZE + sn_pretext_len - 1 ];
