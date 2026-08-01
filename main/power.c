@@ -40,6 +40,7 @@
 static void led_event_handler( lv_event_t *e );
 static void vibration_event_handler( lv_event_t *e );
 static void brightness_event_handler( lv_event_t *e );
+static void style_toggle_button( lv_obj_t *button );
 
 static const char *TAG = POWER_TAB_NAME;
 
@@ -71,6 +72,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *pwr_led_btn = lv_button_create( btn_row );
     lv_obj_set_size( pwr_led_btn, 76, 38 );
     lv_obj_add_flag( pwr_led_btn, LV_OBJ_FLAG_CHECKABLE );
+    style_toggle_button( pwr_led_btn );
     lv_obj_add_state( pwr_led_btn, LV_STATE_CHECKED );
     lv_obj_add_event_cb( pwr_led_btn, led_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
     lv_obj_t *led_label = lv_label_create( pwr_led_btn );
@@ -79,6 +81,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *vibr_btn = lv_button_create( btn_row );
     lv_obj_set_size( vibr_btn, 76, 38 );
     lv_obj_add_flag( vibr_btn, LV_OBJ_FLAG_CHECKABLE );
+    style_toggle_button( vibr_btn );
     lv_obj_add_event_cb( vibr_btn, vibration_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
     lv_obj_t *vibr_label = lv_label_create( vibr_btn );
     lv_label_set_text_static( vibr_label, "Motor" );
@@ -86,6 +89,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *scrn_btn = lv_button_create( btn_row );
     lv_obj_set_size( scrn_btn, 76, 38 );
     lv_obj_add_flag( scrn_btn, LV_OBJ_FLAG_CHECKABLE );
+    style_toggle_button( scrn_btn );
     lv_obj_add_state( scrn_btn, LV_STATE_CHECKED );
     lv_obj_add_event_cb( scrn_btn, brightness_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
     lv_obj_t *brightness_label = lv_label_create( scrn_btn );
@@ -93,7 +97,21 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
 
     lvgl_port_unlock();
 
-    xTaskCreatePinnedToCore( battery_task, "batteryTask", configMINIMAL_STACK_SIZE * 2, ( void * ) bat_labels, 0, &power_handle, 1 );
+    if ( xTaskCreatePinnedToCore( battery_task, "batteryTask", configMINIMAL_STACK_SIZE * 2,
+                                 ( void * ) bat_labels, 0, &power_handle, 1 ) != pdPASS )
+    {
+        power_handle = NULL;
+        ESP_LOGE( TAG, "Failed to create battery task" );
+    }
+}
+
+static void style_toggle_button( lv_obj_t *button )
+{
+    lv_obj_set_style_bg_color( button, lv_color_hex( 0xc62828 ), LV_PART_MAIN | LV_STATE_DEFAULT );
+    lv_obj_set_style_bg_color( button, lv_color_hex( 0x9b1c1c ), LV_PART_MAIN | LV_STATE_PRESSED );
+    lv_obj_set_style_bg_color( button, lv_color_hex( 0x2e7d32 ), LV_PART_MAIN | LV_STATE_CHECKED );
+    lv_obj_set_style_bg_color( button, lv_color_hex( 0x1b5e20 ),
+                               LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED );
 }
 
 static void brightness_event_handler( lv_event_t *e )
@@ -101,10 +119,13 @@ static void brightness_event_handler( lv_event_t *e )
     lv_obj_t *obj = lv_event_get_target( e );
     bool checked = lv_obj_has_state( obj, LV_STATE_CHECKED );
 
-    if ( !checked )
-        core2foraws_power_backlight_set( DISPLAY_BACKLIGHT_START / 2 );
-    else
-        core2foraws_power_backlight_set( DISPLAY_BACKLIGHT_START );
+    uint8_t brightness = checked ? DISPLAY_BACKLIGHT_START : DISPLAY_BACKLIGHT_START / 2;
+    esp_err_t err = core2foraws_power_backlight_set( brightness );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to set screen brightness: %s", esp_err_to_name( err ) );
+        return;
+    }
     
     ESP_LOGI( TAG, "Screen brightness: %d", checked );
 }
@@ -114,7 +135,12 @@ static void led_event_handler( lv_event_t *e )
     lv_obj_t *obj = lv_event_get_target( e );
     bool checked = lv_obj_has_state( obj, LV_STATE_CHECKED );
 
-    core2foraws_power_led_enable( checked );
+    esp_err_t err = core2foraws_power_led_enable( checked );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to set power LED: %s", esp_err_to_name( err ) );
+        return;
+    }
     ESP_LOGI( TAG, "LED state: %d", checked );
 }
 
@@ -123,10 +149,12 @@ static void vibration_event_handler( lv_event_t *e )
     lv_obj_t *obj = lv_event_get_target( e );
     bool checked = lv_obj_has_state( obj, LV_STATE_CHECKED );
 
-    if ( !checked )
-        core2foraws_power_vibration_enable( 0 );
-    else
-        core2foraws_power_vibration_enable( 60 );
+    esp_err_t err = core2foraws_power_vibration_enable( checked );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to set vibration motor: %s", esp_err_to_name( err ) );
+        return;
+    }
     
     ESP_LOGI( TAG, "Vibration motor state: %d", checked );
 }
@@ -140,17 +168,24 @@ void battery_task( void *pvParameters )
     for( ; ; )
     {
         float battery_voltage;
-        core2foraws_power_batt_volts_get( &battery_voltage );
+        esp_err_t err = core2foraws_power_batt_volts_get( &battery_voltage );
 
         bool charging;
-        core2foraws_power_plugged_get( &charging );
+        if ( err == ESP_OK )
+            err = core2foraws_power_plugged_get( &charging );
+        if ( err != ESP_OK )
+        {
+            ESP_LOGW( TAG, "Battery status read failed: %s", esp_err_to_name( err ) );
+            vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+            continue;
+        }
 
         /* Bounded wait with padding so a wedged render loop can't deadlock
          * this periodic task; skip the update if the mutex isn't free. */
         if ( !lvgl_port_lock( 1000 ) )
         {
             ESP_LOGW( TAG, "LVGL lock timeout; skipping battery update" );
-            vTaskDelay( pdMS_TO_TICKS( 200 ) );
+            vTaskDelay( pdMS_TO_TICKS( 1000 ) );
             continue;
         }
         if (battery_voltage >= 4.100)
@@ -189,6 +224,6 @@ void battery_task( void *pvParameters )
             lv_label_set_text( charge_label, "" );
         }
         lvgl_port_unlock();
-        vTaskDelay( pdMS_TO_TICKS( 200 ) );
+        vTaskDelay( pdMS_TO_TICKS( 1000 ) );
     }
 }

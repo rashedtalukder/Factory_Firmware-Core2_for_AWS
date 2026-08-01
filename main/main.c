@@ -35,6 +35,7 @@
 #include "freertos/event_groups.h"
 
 #include "esp_freertos_hooks.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_vfs_fat.h"
@@ -74,7 +75,11 @@ static void screenshot_button_cb(enum core2foraws_button_btns button,
                                   press_event_t event)
 {
     if (button == BUTTON_MIDDLE && event == LONGPRESS)
-        screenshot_take();
+    {
+        esp_err_t err = screenshot_take();
+        if ( err != ESP_OK )
+            ESP_LOGE( TAG, "Screenshot failed: %s", esp_err_to_name( err ) );
+    }
 }
 
 static lv_obj_t *tab_view;
@@ -98,17 +103,27 @@ void app_main( void )
     esp_log_level_set( "gpio", ESP_LOG_NONE );
     esp_log_level_set( "ILI9341", ESP_LOG_NONE );
 
-    core2foraws_init(); // Initializes the enabled hardware drivers and calls their respective initialization functions.
+    esp_err_t err = core2foraws_init();
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Hardware initialization failed: %s", esp_err_to_name( err ) );
+        return;
+    }
     ESP_LOGI( TAG, "Hardware drivers initialized" );
+    core2foraws_common_heap_report( TAG, NULL );
 
     ui_start(); // Starts all the sensor readings and shows them on the display using the LVGL library
 
 #ifdef CONFIG_UITEST_ENABLED
-    uitest_init();
+    err = uitest_init();
+    if ( err != ESP_OK )
+        ESP_LOGE( TAG, "Failed to initialize UI test harness: %s", esp_err_to_name( err ) );
 #endif
 
     screenshot_init();
-    core2foraws_button_register_callback(BUTTON_MIDDLE, LONGPRESS, screenshot_button_cb);
+    err = core2foraws_button_register_callback( BUTTON_MIDDLE, LONGPRESS, screenshot_button_cb );
+    if ( err != ESP_OK )
+        ESP_LOGE( TAG, "Failed to register screenshot button: %s", esp_err_to_name( err ) );
 
     ESP_LOGI( TAG, "Factory firmware ready" );
 }
@@ -127,7 +142,9 @@ static void ui_start( void )
 
     vTaskDelay( pdMS_TO_TICKS( 1500 ) );
     
-    xTaskCreatePinnedToCore( sound_task, "soundTask", 4096 * 2, NULL, 4, NULL, 1 );
+    if ( xTaskCreatePinnedToCore( sound_task, "soundTask", 4096 * 2,
+                                 NULL, 4, NULL, 1 ) != pdPASS )
+        ESP_LOGE( TAG, "Failed to create startup sound task" );
     
     lvgl_port_lock( 0 );
     lv_obj_clean( opener_scr );
@@ -221,7 +238,9 @@ static void ui_start( void )
 
     /* Single BUTTON_RIGHT PRESS dispatch — registered last so it wins.
      * Routes to the right handler depending on the active tab. */
-    core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, right_button_dispatch_cb );
+    esp_err_t err = core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, right_button_dispatch_cb );
+    if ( err != ESP_OK )
+        ESP_LOGE( TAG, "Failed to register right button: %s", esp_err_to_name( err ) );
 
     ESP_LOGD( TAG, "UI ready" );
 }
@@ -238,10 +257,15 @@ static void right_button_dispatch_cb( enum core2foraws_button_btns button, press
     lvgl_port_lock( 0 );
     uint16_t idx = lv_tabview_get_tab_active( tab_view );
     lvgl_port_unlock();
+    if ( idx >= NUM_TABS )
+    {
+        ESP_LOGE( TAG, "Invalid active tab index: %u", idx );
+        return;
+    }
     ESP_LOGD( TAG, "Right button pressed on tab: %s", tab_names[ idx ] );
     if ( strcmp( tab_names[ idx ], CLOCK_TAB_NAME ) == 0 )
         clock_on_right_press();
-    else
+    else if ( strcmp( tab_names[ idx ], TOUCH_TAB_NAME ) == 0 )
         touch_on_right_press();
 }
 
@@ -256,6 +280,7 @@ static void tab_event_cb( lv_event_t *e )
     uint16_t tab_idx = lv_tabview_get_tab_active( tab_view );
     const char *tab_name = tab_names[ tab_idx ];
     ESP_LOGI( TAG, "Active tab: %s", tab_name );
+    touch_set_active( strcmp( tab_name, TOUCH_TAB_NAME ) == 0 );
 
     /* Update page indicator dots */
     for ( int i = 0; i < NUM_TABS; i++ )
@@ -288,10 +313,6 @@ static void tab_event_cb( lv_event_t *e )
     {
         if ( led_bar_animation_handle ) vTaskSuspend( led_bar_animation_handle );
         if ( led_bar_solid_handle )     vTaskResume( led_bar_solid_handle );
-    }
-    else if ( strcmp( tab_name, TOUCH_TAB_NAME ) == 0 )
-    {
-        reset_touch_bg();
     }
     else if ( strcmp( tab_name, WIFI_TAB_NAME ) == 0 )
     {

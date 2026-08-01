@@ -25,8 +25,10 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #define TOUCH_TAB_NAME "FT6336U-TOUCH"
 
 void display_touch_tab( lv_obj_t *tv );
-void reset_touch_bg();
+void touch_set_active( bool active );
 void touch_on_right_press( void );

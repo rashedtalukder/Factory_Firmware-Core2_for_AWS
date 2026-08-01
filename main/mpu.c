@@ -173,7 +173,12 @@ void display_mpu_tab(lv_obj_t *tv)
 
     lvgl_port_unlock();
     
-    xTaskCreatePinnedToCore( MPU_task, "MPUTask", 2048, ( void * ) meter, 1, &MPU_handle, 1 );
+    if ( xTaskCreatePinnedToCore( MPU_task, "MPUTask", 2048, ( void * ) meter,
+                                 1, &MPU_handle, 1 ) != pdPASS )
+    {
+        MPU_handle = NULL;
+        ESP_LOGE( TAG, "Failed to create IMU task" );
+    }
 }
 
 void MPU_task( void *pvParameters )
@@ -182,23 +187,24 @@ void MPU_task( void *pvParameters )
     float calib_gy = 0.00;
     float calib_gz = 0.00;
 
-    float calib_ax = 0.00;
-    float calib_ay = 0.00;
-    float calib_az = 0.00;
-
-    core2foraws_motion_accel_get( &calib_ax, &calib_ay, &calib_az );
-    core2foraws_motion_gyro_get( &calib_gx, &calib_gy, &calib_gz );
+    esp_err_t err = core2foraws_motion_gyro_get( &calib_gx, &calib_gy, &calib_gz );
+    if ( err != ESP_OK )
+        ESP_LOGW( TAG, "IMU calibration read failed: %s", esp_err_to_name( err ) );
     
     vTaskSuspend( NULL );
 
     for ( ; ; )
     {
         float gx, gy, gz;
-        float ax, ay, az;
-        core2foraws_motion_accel_get( &ax, &ay, &az );
-        core2foraws_motion_gyro_get( &gx, &gy, &gz );
+        err = core2foraws_motion_gyro_get( &gx, &gy, &gz );
+        if ( err != ESP_OK )
+        {
+            ESP_LOGW( TAG, "IMU read failed: %s", esp_err_to_name( err ) );
+            vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+            continue;
+        }
 
-        ESP_LOGD( TAG, "Raw Accel: X-%.2f Y-%.2f Z-%.2f | Gyro: X-%.2f Y-%.2f Z-%.2f", ax, ay, az, gx, gy, gz );
+        ESP_LOGD( TAG, "Raw Gyro: X-%.2f Y-%.2f Z-%.2f", gx, gy, gz );
 
         lv_obj_t *meter = ( lv_obj_t * )pvParameters;
         

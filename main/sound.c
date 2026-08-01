@@ -44,9 +44,15 @@ void sound_task( void *pvParameters )
     if ( err == ESP_OK )
     {    
         extern const unsigned char music[ 120264 ];
-        core2foraws_audio_speaker_write( ( const uint8_t * )music, 120264 );
-        core2foraws_audio_speaker_enable( false );
-        ESP_LOGD( TAG, "Startup sound finished" );
+        err = core2foraws_audio_speaker_write( ( const uint8_t * )music, 120264 );
+        if ( err != ESP_OK )
+            ESP_LOGE( TAG, "Failed to play startup sound: %s", esp_err_to_name( err ) );
+
+        esp_err_t disable_err = core2foraws_audio_speaker_enable( false );
+        if ( disable_err != ESP_OK )
+            ESP_LOGE( TAG, "Failed to disable speaker: %s", esp_err_to_name( disable_err ) );
+        else if ( err == ESP_OK )
+            ESP_LOGD( TAG, "Startup sound finished" );
     }
     else
     {

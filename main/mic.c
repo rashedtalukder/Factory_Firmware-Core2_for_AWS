@@ -90,7 +90,7 @@ void display_microphone_tab(lv_obj_t *tv)
 
     ESP_LOGD(TAG,"Building tab");
 
-    xTaskCreatePinnedToCore(
+    if(xTaskCreatePinnedToCore(
         fft_show_task,
         "fftShowTask",
         4096*2,
@@ -98,7 +98,11 @@ void display_microphone_tab(lv_obj_t *tv)
         1,
         &FFT_handle,
         1
-    );
+    )!=pdPASS)
+    {
+        FFT_handle=NULL;
+        ESP_LOGE(TAG,"Failed to create FFT display task");
+    }
 }
 
 void microphoneTask(void *pvParameters)
@@ -107,13 +111,16 @@ void microphoneTask(void *pvParameters)
 
     QueueHandle_t queue = (QueueHandle_t)pvParameters;
 
-    static int8_t i2s_readraw_buff[1024];
+    static int16_t mic_samples[FFT_SIZE];
 
     size_t bytesread=0;
 
-    int16_t *buffptr=NULL;
-
-    core2foraws_audio_mic_enable(true);
+    esp_err_t err;
+    while((err=core2foraws_audio_mic_enable(true))!=ESP_OK)
+    {
+        ESP_LOGW(TAG,"Microphone busy; retrying: %s",esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
 
     fft_config_t *fft_plan =
         fft_init(FFT_SIZE,FFT_REAL,FFT_FORWARD,NULL,NULL);
@@ -121,6 +128,8 @@ void microphoneTask(void *pvParameters)
     if(fft_plan==NULL)
     {
         ESP_LOGE(TAG,"fft_init failed");
+        core2foraws_audio_mic_enable(false);
+        mic_handle=NULL;
         vTaskDelete(NULL);
         return;
     }
@@ -131,19 +140,24 @@ void microphoneTask(void *pvParameters)
     {
         memset(&frame,0,sizeof(frame));
 
-        core2foraws_audio_mic_read(
-            i2s_readraw_buff,
-            sizeof(i2s_readraw_buff),
+        err=core2foraws_audio_mic_read(
+            (int8_t*)mic_samples,
+            sizeof(mic_samples),
             &bytesread
         );
-
-        buffptr=(int16_t*)i2s_readraw_buff;
+        if(err!=ESP_OK || bytesread!=sizeof(mic_samples))
+        {
+            if(err!=ESP_OK)
+                ESP_LOGW(TAG,"Microphone read failed: %s",esp_err_to_name(err));
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
 
         for(uint16_t i=0;i<fft_plan->size;i++)
         {
             fft_plan->input[i] =
                 (float)map_long(
-                    buffptr[i],
+                    mic_samples[i],
                     INT16_MIN,
                     INT16_MAX,
                     -1000,
@@ -181,21 +195,10 @@ void fft_show_task(void *pvParameters)
     if(mic_queue==NULL)
     {
         ESP_LOGE(TAG,"Failed to create mic queue");
+        FFT_handle=NULL;
         vTaskDelete(NULL);
         return;
     }
-
-    xTaskCreatePinnedToCore(
-        microphoneTask,
-        "microphoneTask",
-        4096*2,
-        (void*)mic_queue,
-        1,
-        &mic_handle,
-        1
-    );
-
-    vTaskSuspend(NULL);
 
     static uint16_t position_data=0;
 
@@ -221,6 +224,8 @@ void fft_show_task(void *pvParameters)
     {
         lvgl_port_unlock();
         ESP_LOGE(TAG,"Canvas alloc failed");
+        vQueueDelete(mic_queue);
+        FFT_handle=NULL;
         vTaskDelete(NULL);
         return;
     }
@@ -242,6 +247,26 @@ void fft_show_task(void *pvParameters)
     lv_obj_align(canvas,LV_ALIGN_CENTER,0,0);
 
     lvgl_port_unlock();
+
+    if(xTaskCreatePinnedToCore(
+        microphoneTask,
+        "microphoneTask",
+        4096*2,
+        (void*)mic_queue,
+        1,
+        &mic_handle,
+        1
+    )!=pdPASS)
+    {
+        mic_handle=NULL;
+        ESP_LOGE(TAG,"Failed to create microphone task");
+        vQueueDelete(mic_queue);
+        FFT_handle=NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    vTaskSuspend(NULL);
 
     extern const unsigned char color_map[768];
 

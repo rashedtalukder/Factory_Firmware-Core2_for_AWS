@@ -51,10 +51,36 @@ static void red_event_handler(lv_event_t *e);
 static void green_event_handler(lv_event_t *e);
 static void blue_event_handler(lv_event_t *e);
 
+static bool color_snapshot( uint8_t *current_red, uint8_t *current_green, uint8_t *current_blue )
+{
+    if ( color_lock == NULL || xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) != pdTRUE )
+        return false;
+
+    *current_red = red;
+    *current_green = green;
+    *current_blue = blue;
+    xSemaphoreGive( color_lock );
+    return true;
+}
+
+static bool led_commit( esp_err_t err, const char *operation )
+{
+    if ( err == ESP_OK )
+        err = core2foraws_rgb_led_write();
+    if ( err != ESP_OK )
+    {
+        ESP_LOGW( TAG, "LED %s failed: %s", operation, esp_err_to_name( err ) );
+        return false;
+    }
+    return true;
+}
+
 void display_LED_bar_tab(lv_obj_t *tv)
 {
     ESP_LOGD( TAG, "Building tab" );
     color_lock = xSemaphoreCreateMutex();
+    if ( color_lock == NULL )
+        ESP_LOGE( TAG, "Failed to create LED color mutex" );
 
     lvgl_port_lock( 0 );
 
@@ -111,58 +137,72 @@ void display_LED_bar_tab(lv_obj_t *tv)
     lvgl_port_unlock();
     
     if ( xTaskCreatePinnedToCore( sk6812_animation_task, "sk6812AnimationTask", configMINIMAL_STACK_SIZE * 3, NULL, 1, &led_bar_animation_handle, 1 ) != pdPASS )
+    {
+        led_bar_animation_handle = NULL;
         ESP_LOGE( TAG, "Failed to create sk6812AnimationTask (low internal memory)" );
-    if ( xTaskCreatePinnedToCore( sk6812_solid_task, "sk6812SolidTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &led_bar_solid_handle, 1 ) != pdPASS )
+    }
+    if ( color_lock != NULL &&
+         xTaskCreatePinnedToCore( sk6812_solid_task, "sk6812SolidTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &led_bar_solid_handle, 1 ) != pdPASS )
+    {
+        led_bar_solid_handle = NULL;
         ESP_LOGE( TAG, "Failed to create sk6812SolidTask (low internal memory)" );
+    }
 }
 
 static void red_event_handler( lv_event_t *e )
 {
     lv_obj_t *slider = lv_event_get_target( e );
-    xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) );
-    red = ( uint8_t )lv_slider_get_value( slider );
-    xSemaphoreGive( color_lock );
+    if ( color_lock != NULL && xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) == pdTRUE )
+    {
+        red = ( uint8_t )lv_slider_get_value( slider );
+        xSemaphoreGive( color_lock );
+    }
 }
 
 static void green_event_handler( lv_event_t *e )
 {
     lv_obj_t *slider = lv_event_get_target( e );
-    xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) );
-    green = ( uint8_t )lv_slider_get_value( slider );
-    xSemaphoreGive( color_lock );
+    if ( color_lock != NULL && xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) == pdTRUE )
+    {
+        green = ( uint8_t )lv_slider_get_value( slider );
+        xSemaphoreGive( color_lock );
+    }
 }
 
 static void blue_event_handler( lv_event_t *e )
 {
     lv_obj_t *slider = lv_event_get_target( e );
-    xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) );
-    blue = ( uint8_t )lv_slider_get_value( slider );
-    xSemaphoreGive( color_lock );
+    if ( color_lock != NULL && xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) == pdTRUE )
+    {
+        blue = ( uint8_t )lv_slider_get_value( slider );
+        xSemaphoreGive( color_lock );
+    }
 }
 
 void sk6812_solid_task( void *pvParameters )
 {
     vTaskSuspend( NULL );
-    xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) );
-    uint8_t current_red = red, current_green = green, current_blue = blue;
-    xSemaphoreGive( color_lock );
-    core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, ( current_red << 16 ) + ( current_green << 8 ) + ( current_blue ) );
-    core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, ( current_red << 16 ) + ( current_green << 8 ) + ( current_blue ) );
-    core2foraws_rgb_led_write();
+    uint8_t current_red = 0, current_green = 0, current_blue = 0;
+    bool initialized = false;
     
     while( 1 )
     {
-        if ( ( current_red != red ) || ( current_green != green ) || ( current_blue != blue ) )
+        uint8_t next_red, next_green, next_blue;
+        if ( color_snapshot( &next_red, &next_green, &next_blue ) &&
+             ( !initialized || current_red != next_red || current_green != next_green || current_blue != next_blue ) )
         {
-            xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) );
-            current_red = red, current_green = green, current_blue = blue;
-            xSemaphoreGive( color_lock );
-            core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, ( current_red << 16 ) + ( current_green << 8 ) + ( current_blue ) );
-            core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, ( current_red << 16 ) + ( current_green << 8 ) + ( current_blue ) );
-            core2foraws_rgb_led_write();
+            initialized = true;
+            current_red = next_red;
+            current_green = next_green;
+            current_blue = next_blue;
+            uint32_t color = ( current_red << 16 ) + ( current_green << 8 ) + current_blue;
+            esp_err_t err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, color );
+            if ( err == ESP_OK )
+                err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, color );
+            led_commit( err, "solid color update" );
             ESP_LOGD( TAG, "Color changed to #%.2x%.2x%.2x", current_red, current_green, current_blue );
         }
-        vTaskDelay( pdMS_TO_TICKS( 10 ) );
+        vTaskDelay( pdMS_TO_TICKS( 20 ) );
     };
 }
 
@@ -170,34 +210,31 @@ void sk6812_animation_task( void *pvParameters )
 {
     while ( 1 )
     {
-        core2foraws_rgb_led_clear();
-        core2foraws_rgb_led_write();
+        led_commit( core2foraws_rgb_led_clear(), "clear" );
 
         for ( uint8_t i = 0; i < 10; i++ )
         {
-            core2foraws_rgb_led_single_color_set( i, AMAZON_ORANGE );
-            core2foraws_rgb_led_write();
+            led_commit( core2foraws_rgb_led_single_color_set( i, AMAZON_ORANGE ), "animation update" );
             vTaskDelay( pdMS_TO_TICKS( 70 ) );
         }
 
         for ( uint8_t i = 0; i < 10; i++ )
         {
-            core2foraws_rgb_led_single_color_set( i, 0x000000 );
-            core2foraws_rgb_led_write();
+            led_commit( core2foraws_rgb_led_single_color_set( i, 0x000000 ), "animation update" );
             vTaskDelay( pdMS_TO_TICKS( 70 ) );
         }
 
-        core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, 0x232f3e );
-        core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, 0xffffff );
-        core2foraws_rgb_led_write();
+        esp_err_t err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, 0x232f3e );
+        if ( err == ESP_OK )
+            err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, 0xffffff );
+        led_commit( err, "side color update" );
 
         for ( uint8_t i = 40; i > 0; i-- )
         {
-            core2foraws_rgb_led_brightness_set(i);
-            core2foraws_rgb_led_write();
+            led_commit( core2foraws_rgb_led_brightness_set( i ), "brightness update" );
             vTaskDelay( pdMS_TO_TICKS( 25 ) );
         }
 
-        core2foraws_rgb_led_brightness_set( 20 );
+        led_commit( core2foraws_rgb_led_brightness_set( 20 ), "brightness restore" );
     }
 }

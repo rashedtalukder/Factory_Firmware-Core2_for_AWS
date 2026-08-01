@@ -79,8 +79,12 @@ void display_wifi_tab( lv_obj_t *tv )
     lv_style_set_bg_color( &modal_style, lv_color_make(0,0,0) );
 
     lvgl_port_unlock();
-    if ( xTaskCreatePinnedToCore( wifi_scan_task, "WiFiScanTask", configMINIMAL_STACK_SIZE * 4, (void*)ap_list, 1, &wifi_handle, 1 ) != pdPASS )
+    if ( xTaskCreatePinnedToCore( wifi_scan_task, "WiFiScanTask", configMINIMAL_STACK_SIZE * 4,
+                                 (void*)ap_list, 1, &wifi_handle, 1 ) != pdPASS )
+    {
+        wifi_handle = NULL;
         ESP_LOGE( TAG, "Failed to create WiFiScanTask (low internal memory)" );
+    }
 }
 
 static void opa_anim( void *bg, int32_t v )
@@ -152,24 +156,50 @@ static void wifi_scan_task( void *pvParameters )
     /* Start Wi-Fi in STA mode so scanning is possible. The driver is already
      * initialized by core2foraws_wifi_init(); we only need to set the mode and
      * start the radio, then wait for WIFI_EVENT_STA_START before scanning. */
+    bool start_handler_registered = false;
     _wifi_start_eg = xEventGroupCreate();
-    esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start, NULL );
-
-    esp_wifi_set_mode( WIFI_MODE_STA );
-    esp_err_t start_err = esp_wifi_start();
-    if ( start_err != ESP_OK && start_err != ESP_ERR_WIFI_CONN )
+    if ( _wifi_start_eg == NULL )
     {
-        ESP_LOGE( TAG, "Failed to start Wi-Fi: 0x%x", start_err );
-        vEventGroupDelete( _wifi_start_eg );
-        vTaskDelete( NULL );
-        return;
+        ESP_LOGE( TAG, "Failed to create Wi-Fi startup event group" );
+        goto setup_failed;
+    }
+
+    esp_err_t err = esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_START,
+                                                _on_sta_start, NULL );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to register Wi-Fi start handler: %s", esp_err_to_name( err ) );
+        goto setup_failed;
+    }
+    start_handler_registered = true;
+
+    err = esp_wifi_set_mode( WIFI_MODE_STA );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to set Wi-Fi station mode: %s", esp_err_to_name( err ) );
+        goto setup_failed;
+    }
+    esp_err_t start_err = esp_wifi_start();
+    if ( start_err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Failed to start Wi-Fi: %s", esp_err_to_name( start_err ) );
+        goto setup_failed;
     }
 
     /* Block until WIFI_EVENT_STA_START confirms the interface is ready */
-    xEventGroupWaitBits( _wifi_start_eg, WIFI_STA_STARTED_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS( 5000 ) );
+    EventBits_t start_bits = xEventGroupWaitBits( _wifi_start_eg, WIFI_STA_STARTED_BIT,
+                                                  pdFALSE, pdFALSE, pdMS_TO_TICKS( 5000 ) );
     esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start );
+    start_handler_registered = false;
     vEventGroupDelete( _wifi_start_eg );
     _wifi_start_eg = NULL;
+    if ( !( start_bits & WIFI_STA_STARTED_BIT ) )
+    {
+        ESP_LOGE( TAG, "Timed out waiting for Wi-Fi station startup" );
+        goto setup_failed;
+    }
+
+    core2foraws_common_heap_report( TAG, NULL );
 
     /*Add buttons to the list*/
     lv_obj_t *list_btn;
@@ -199,7 +229,14 @@ static void wifi_scan_task( void *pvParameters )
             continue;
         }
         number = DEFAULT_SCAN_LIST_SIZE;
-        ESP_ERROR_CHECK( esp_wifi_scan_get_ap_num( &ap_count ) );
+        esp_err_t count_err = esp_wifi_scan_get_ap_num( &ap_count );
+        if ( count_err != ESP_OK )
+        {
+            ESP_LOGE( TAG, "Failed to get AP count: %s", esp_err_to_name( count_err ) );
+            esp_wifi_clear_ap_list();
+            vTaskSuspend( NULL );
+            continue;
+        }
         esp_err_t rec_err = esp_wifi_scan_get_ap_records( &number, ap_info );
         if ( rec_err != ESP_OK )
         {
@@ -210,12 +247,19 @@ static void wifi_scan_task( void *pvParameters )
         }
 
         ESP_LOGI( TAG, "Total APs scanned = %u", ap_count );
+
+        if ( number == 0 && lvgl_port_lock( 1000 ) )
+        {
+            lv_list_add_text( ( lv_obj_t * )pvParameters, "No networks found" );
+            lvgl_port_unlock();
+        }
         
-        for ( int i = 0; ( i < DEFAULT_SCAN_LIST_SIZE ) && ( i < ap_count ); i++ )
+        for ( int i = 0; i < number; i++ )
         {
             if ( lvgl_port_lock( 1000 ) )
             {
-                list_btn = lv_list_add_button( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ( char * )ap_info[ i ].ssid );
+                const char *ssid = ap_info[ i ].ssid[ 0 ] ? ( char * )ap_info[ i ].ssid : "<hidden network>";
+                list_btn = lv_list_add_button( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ssid );
                 lv_obj_add_event_cb( list_btn, event_handler, LV_EVENT_CLICKED, NULL );
                 lvgl_port_unlock();
             }
@@ -230,4 +274,15 @@ static void wifi_scan_task( void *pvParameters )
         }
         vTaskSuspend( NULL );
     }
+
+setup_failed:
+    if ( start_handler_registered )
+        esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start );
+    if ( _wifi_start_eg != NULL )
+    {
+        vEventGroupDelete( _wifi_start_eg );
+        _wifi_start_eg = NULL;
+    }
+    wifi_handle = NULL;
+    vTaskDelete( NULL );
 }

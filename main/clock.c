@@ -51,19 +51,26 @@ void clock_on_right_press( void )
     int minute = lv_roller_get_selected( minute_roller );
     lvgl_port_unlock();
 
-    struct tm current_time;
-    core2foraws_rtc_time_get( &current_time );
-    current_time.tm_hour = hour;
-    current_time.tm_min = minute;
-    current_time.tm_sec = 0;
-    core2foraws_rtc_time_set( current_time );
+    struct tm current_time = { 0 };
+    esp_err_t err = core2foraws_rtc_time_get( &current_time );
+    if ( err == ESP_OK )
+    {
+        current_time.tm_hour = hour;
+        current_time.tm_min = minute;
+        current_time.tm_sec = 0;
+        err = core2foraws_rtc_time_set( current_time );
+    }
 
-    ESP_LOGI( TAG, "RTC set to %02d:%02d:00", hour, minute );
+    if ( err == ESP_OK )
+        ESP_LOGI( TAG, "RTC set to %02d:%02d:00", hour, minute );
+    else
+        ESP_LOGE( TAG, "Failed to set RTC: %s", esp_err_to_name( err ) );
 
     /* Flash brief confirmation */
     lvgl_port_lock( 0 );
-    lv_label_set_text_static( set_confirm_label, LV_SYMBOL_OK );
-    lv_obj_set_style_text_color( set_confirm_label, lv_color_hex( 0x007700 ), 0 );
+    lv_label_set_text_static( set_confirm_label, err == ESP_OK ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE );
+    lv_obj_set_style_text_color( set_confirm_label,
+                                 lv_color_hex( err == ESP_OK ? 0x007700 : 0xb00020 ), 0 );
     lvgl_port_unlock();
 }
 
@@ -147,7 +154,12 @@ void display_clock_tab( lv_obj_t *tv )
 
     lvgl_port_unlock();
 
-    xTaskCreatePinnedToCore( clock_task, "clockTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &clock_handle, 1 );
+    if ( xTaskCreatePinnedToCore( clock_task, "clockTask", configMINIMAL_STACK_SIZE * 3,
+                                 NULL, 0, &clock_handle, 1 ) != pdPASS )
+    {
+        clock_handle = NULL;
+        ESP_LOGE( TAG, "Failed to create clock task" );
+    }
 }
 
 void clock_task( void *pvParameters )
@@ -158,7 +170,12 @@ void clock_task( void *pvParameters )
         uint32_t refresh_rollers = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS( 1000 ) );
 
         struct tm current_time;
-        core2foraws_rtc_time_get( &current_time );
+        esp_err_t err = core2foraws_rtc_time_get( &current_time );
+        if ( err != ESP_OK )
+        {
+            ESP_LOGW( TAG, "RTC read failed: %s", esp_err_to_name( err ) );
+            continue;
+        }
         char clock_buf[ 26 ];
         strftime( clock_buf, 26, "%I:%M:%S %p", &current_time );
 
