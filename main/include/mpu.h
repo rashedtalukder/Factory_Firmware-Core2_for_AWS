@@ -30,4 +30,5 @@
 extern TaskHandle_t MPU_handle;
 
 void display_mpu_tab( lv_obj_t *tv );
+void mpu_set_active( bool active );
 void MPU_task( void *pvParameters );

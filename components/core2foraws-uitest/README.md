@@ -72,7 +72,7 @@ with `<PREFIX>:` (default `UITEST:`).
 | `SWIPE <x0> <y0> <x1> <y1> <ms>` | `UITEST: OK SWIPE ...` | Interpolated pressed drag over `ms` |
 | `CLICK <id>` | `UITEST: OK CLICK <id>` | Tap the center of a registered widget |
 | `DUMP` | `NODE` lines between `---UITEST_DUMP_START/END---` | Serialize the active screen widget tree |
-| `SHOT` | `UITEST: OK SHOT` + screenshot stream | Capture a screenshot (needs screenshot component) |
+| `SHOT` | Screenshot stream + `UITEST: OK SHOT SEQ:<n>` | Queue a screenshot on the capture worker (needs screenshot component) |
 
 `TAP`/`LONGPRESS`/`SWIPE`/`CLICK` reserve their complete sample sequence before
 enqueueing, so concurrent callers cannot interleave or leave a partial press.
@@ -137,11 +137,13 @@ python tools/uitest_runner.py --port $PORT script smoke.txt
 python tools/uitest_runner.py --port $PORT script smoke.txt --continue-on-error
 ```
 
-The runner opens the port with DTR/RTS deasserted so it does **not** reset the
-board, flushes stale input before each command, and waits for a reply matching
-that command's verb. `SHOT` uses a 120-second timeout; other commands use
-`--timeout` (10 seconds by default). Script failures report the source line and
-stop immediately unless `--continue-on-error` is selected.
+The runner opens the port with DTR/RTS deasserted. Some CP2104 adapters still
+reset the board when the port opens; when an ESP32 reset banner is detected, the
+runner waits up to 10 seconds for the harness-ready message before sending the
+first command. It then flushes stale input before each command and waits for a
+reply matching that command's verb. `SHOT` uses a 120-second timeout; other
+commands use `--timeout` (10 seconds by default). Script failures report the
+source line and stop immediately unless `--continue-on-error` is selected.
 
 Run host regression tests with:
 

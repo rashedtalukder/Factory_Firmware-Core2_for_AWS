@@ -39,6 +39,8 @@ DEFAULT_BAUD = 115200
 DEFAULT_REPLY_TIMEOUT = 10.0
 SHOT_TIMEOUT = 120.0
 MAX_COMMAND_BYTES = 159
+OPEN_RESET_DETECT_TIMEOUT = 0.5
+OPEN_RESET_READY_TIMEOUT = 10.0
 
 
 class UITestClient:
@@ -56,6 +58,33 @@ class UITestClient:
         self.ser.dtr = False
         self.ser.rts = False
         self.ser.open()
+        self._wait_for_device_ready()
+        self.ser.reset_input_buffer()
+
+    def _wait_for_device_ready(self, detect_timeout=OPEN_RESET_DETECT_TIMEOUT,
+                               ready_timeout=OPEN_RESET_READY_TIMEOUT):
+        """Wait for firmware readiness only when opening the port reset it."""
+        detect_deadline = time.monotonic() + detect_timeout
+        deadline = detect_deadline
+        reset_seen = False
+        startup_buffer = b""
+        while time.monotonic() < deadline:
+            startup_buffer += self.ser.read(256)
+            while b"\n" in startup_buffer:
+                raw, startup_buffer = startup_buffer.split(b"\n", 1)
+                line = raw.decode("ascii", errors="replace").strip()
+                if self.verbose and line:
+                    print(f"<< {line}")
+                if line.startswith("ets ") or line.startswith("rst:"):
+                    if not reset_seen:
+                        deadline = time.monotonic() + ready_timeout
+                    reset_seen = True
+                if reset_seen and "UITEST: UI test harness ready" in line:
+                    return
+            if not reset_seen and time.monotonic() >= detect_deadline:
+                return
+        if reset_seen:
+            raise RuntimeError("device reset on serial open but UI test harness did not become ready")
 
     def close(self):
         if self.ser.is_open:

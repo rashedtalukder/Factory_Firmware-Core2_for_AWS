@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdatomic.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -63,6 +64,16 @@ static const char *TAG = MPU_TAB_NAME;
 static lv_obj_t *needle_x;
 static lv_obj_t *needle_y;
 static lv_obj_t *needle_z;
+static atomic_bool mpu_active;
+
+void mpu_set_active( bool active )
+{
+    atomic_store( &mpu_active, active );
+    if( active && MPU_handle != NULL )
+    {
+        xTaskNotifyGive( MPU_handle );
+    }
+}
 
 void display_mpu_tab(lv_obj_t *tv)
 {
@@ -191,10 +202,13 @@ void MPU_task( void *pvParameters )
     if ( err != ESP_OK )
         ESP_LOGW( TAG, "IMU calibration read failed: %s", esp_err_to_name( err ) );
     
-    vTaskSuspend( NULL );
-
     for ( ; ; )
     {
+        while( !atomic_load( &mpu_active ) )
+        {
+            ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
+        }
+
         float gx, gy, gz;
         err = core2foraws_motion_gyro_get( &gx, &gy, &gz );
         if ( err != ESP_OK )

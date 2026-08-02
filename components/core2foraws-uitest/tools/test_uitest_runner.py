@@ -51,6 +51,25 @@ def make_client(serial, timeout=0.02):
 
 
 class ClientTests(unittest.TestCase):
+    def test_waits_for_ready_after_serial_open_reset(self):
+        serial = ScriptedSerial()
+        serial.pending.extend(
+            b"ets Jul 29 2019 12:21:46\n"
+            b"rst:0x1 (POWERON_RESET),boot:0x17\n"
+            b"I (4572) UITEST: UI test harness ready - commands: INFO DUMP\n"
+        )
+        client = make_client(serial)
+        client._wait_for_device_ready(detect_timeout=0.1, ready_timeout=0.1)
+        self.assertEqual(serial.pending, b"")
+
+    def test_serial_open_reset_without_ready_fails(self):
+        serial = ScriptedSerial()
+        serial.pending.extend(b"ets Jul 29 2019 12:21:46\nrst:0x1\n")
+        client = make_client(serial)
+        with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+            client._wait_for_device_ready(detect_timeout=0.01,
+                                          ready_timeout=0.01)
+
     def test_matches_reply_verb_and_fragmented_lines(self):
         serial = ScriptedSerial({
             "INFO": (

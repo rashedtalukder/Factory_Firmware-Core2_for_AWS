@@ -287,11 +287,11 @@ static void tab_event_cb( lv_event_t *e )
         lv_obj_set_style_bg_color( page_dots[i], ( i == tab_idx ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
     lv_label_set_text_static( page_title_label, tab_display_names[ tab_idx ] );
 
-    /* Suspend all per-tab worker tasks. These are guarded against NULL: a task
+    /* Deactivate or suspend per-tab worker tasks. These are guarded against NULL: a task
      * handle is NULL if its xTaskCreate failed (e.g. low internal RAM). Passing
      * NULL to vTaskSuspend() would suspend THIS task (taskLVGL) while it holds
      * the LVGL lock, hanging the whole UI — so every handle must be checked. */
-    if ( MPU_handle )            vTaskSuspend( MPU_handle );
+    mpu_set_active( strcmp( tab_name, MPU_TAB_NAME ) == 0 );
     if ( mic_handle )            vTaskSuspend( mic_handle );
     if ( FFT_handle )            vTaskSuspend( FFT_handle );
     if ( wifi_handle )           vTaskSuspend( wifi_handle );
@@ -300,10 +300,6 @@ static void tab_event_cb( lv_event_t *e )
 
     if ( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 )
         update_roller_time();
-    else if ( strcmp( tab_name, MPU_TAB_NAME ) == 0 )
-    {
-        if ( MPU_handle ) vTaskResume( MPU_handle );
-    }
     else if (strcmp( tab_name, MICROPHONE_TAB_NAME ) == 0 )
     {
         if ( mic_handle ) vTaskResume( mic_handle );

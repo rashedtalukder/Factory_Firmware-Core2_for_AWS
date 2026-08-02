@@ -625,6 +625,18 @@ static void finish_gesture_command(const char *command, esp_err_t err,
     fflush(stdout);
 }
 
+#ifdef CONFIG_SCREENSHOT_ENABLED
+static void shot_done(uint32_t sequence, esp_err_t result, void *user_data)
+{
+    (void)user_data;
+    if (result == ESP_OK) {
+        reply_ok("SHOT SEQ:%lu", (unsigned long)sequence);
+    } else {
+        reply_command_error("SHOT", result);
+    }
+}
+#endif
+
 /* Parse and dispatch one command line. */
 static void handle_line(char *line)
 {
@@ -699,9 +711,9 @@ static void handle_line(char *line)
 
     } else if (strcmp(verb, "SHOT") == 0 && command_has_no_args(line)) {
 #ifdef CONFIG_SCREENSHOT_ENABLED
-        esp_err_t err = screenshot_take();
-        if (err == ESP_OK) reply_ok("SHOT");
-        else reply_command_error("SHOT", err);
+    uint32_t sequence;
+    esp_err_t err = screenshot_take_async(shot_done, NULL, &sequence);
+    if (err != ESP_OK) reply_command_error("SHOT", err);
 #else
         reply_err("SHOT screenshot component disabled");
 #endif
