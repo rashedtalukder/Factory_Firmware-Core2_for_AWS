@@ -24,6 +24,7 @@
  */
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <freertos/FreeRTOS.h>
@@ -43,6 +44,7 @@ static lv_obj_t *hour_roller;
 static lv_obj_t *minute_roller;
 static lv_obj_t *time_label;
 static lv_obj_t *set_confirm_label;
+static atomic_uint pending_time;
 
 void clock_on_right_press( void )
 {
@@ -50,28 +52,14 @@ void clock_on_right_press( void )
     int hour = lv_roller_get_selected( hour_roller );
     int minute = lv_roller_get_selected( minute_roller );
     lvgl_port_unlock();
+    atomic_store(&pending_time, (unsigned int)(hour * 60 + minute + 1));
+    if (clock_handle) xTaskNotifyGive(clock_handle);
+}
 
-    struct tm current_time = { 0 };
-    esp_err_t err = core2foraws_rtc_time_get( &current_time );
-    if ( err == ESP_OK )
-    {
-        current_time.tm_hour = hour;
-        current_time.tm_min = minute;
-        current_time.tm_sec = 0;
-        err = core2foraws_rtc_time_set( current_time );
-    }
-
-    if ( err == ESP_OK )
-        ESP_LOGI( TAG, "RTC set to %02d:%02d:00", hour, minute );
-    else
-        ESP_LOGE( TAG, "Failed to set RTC: %s", esp_err_to_name( err ) );
-
-    /* Flash brief confirmation */
-    lvgl_port_lock( 0 );
-    lv_label_set_text_static( set_confirm_label, err == ESP_OK ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE );
-    lv_obj_set_style_text_color( set_confirm_label,
-                                 lv_color_hex( err == ESP_OK ? 0x007700 : 0xb00020 ), 0 );
-    lvgl_port_unlock();
+static void set_time_cb(lv_event_t *event)
+{
+    (void)event;
+    clock_on_right_press();
 }
 
 void update_roller_time()
@@ -131,6 +119,7 @@ void display_clock_tab( lv_obj_t *tv )
     char hours_str[24 * 3];
     build_two_digit_options( hours_str, sizeof( hours_str ), 24 );
     hour_roller = lv_roller_create( roller_row );
+    ui_test_id(hour_roller, "clock.hour");
     lv_roller_set_options( hour_roller, hours_str, LV_ROLLER_MODE_NORMAL );
     lv_roller_set_visible_row_count( hour_roller, 2 );
     lv_obj_set_width( hour_roller, 60 );
@@ -141,16 +130,19 @@ void display_clock_tab( lv_obj_t *tv )
     char minutes_str[60 * 3];
     build_two_digit_options( minutes_str, sizeof( minutes_str ), 60 );
     minute_roller = lv_roller_create( roller_row );
+    ui_test_id(minute_roller, "clock.minute");
     lv_roller_set_options( minute_roller, minutes_str, LV_ROLLER_MODE_NORMAL );
     lv_roller_set_visible_row_count( minute_roller, 2 );
     lv_obj_set_width( minute_roller, 60 );
 
-    /* "Set" hint — floating so flex layout doesn't claim it; pinned bottom-right */
-    set_confirm_label = lv_label_create( clock_tab );
+    lv_obj_t *set_button = lv_button_create(roller_row);
+    lv_obj_set_size(set_button, 54, 30);
+    lv_obj_add_event_cb(set_button, set_time_cb, LV_EVENT_CLICKED, NULL);
+    ui_test_id(set_button, "clock.set");
+    set_confirm_label = lv_label_create( set_button );
     lv_label_set_text_static( set_confirm_label, "Set" );
-    lv_obj_set_style_text_color( set_confirm_label, lv_color_hex( UI_ACCENT_COLOR ), 0 );
-    lv_obj_add_flag( set_confirm_label, LV_OBJ_FLAG_FLOATING );
-    lv_obj_align( set_confirm_label, LV_ALIGN_BOTTOM_RIGHT, -40, -4 );
+    lv_obj_center(set_confirm_label);
+    ui_test_id(set_confirm_label, "clock.result");
 
     lvgl_port_unlock();
 
@@ -168,12 +160,23 @@ void clock_task( void *pvParameters )
         /* Wake once per second to refresh the live time, or immediately when
          * the clock tab is (re)opened (update_roller_time() notifies us). */
         uint32_t refresh_rollers = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS( 1000 ) );
+        unsigned int requested = atomic_exchange(&pending_time, 0);
 
         struct tm current_time;
         esp_err_t err = core2foraws_rtc_time_get( &current_time );
+        if (err == ESP_OK && requested != 0) {
+            current_time.tm_hour = (requested - 1) / 60;
+            current_time.tm_min = (requested - 1) % 60;
+            current_time.tm_sec = 0;
+            err = core2foraws_rtc_time_set(current_time);
+        }
         if ( err != ESP_OK )
         {
             ESP_LOGW( TAG, "RTC read failed: %s", esp_err_to_name( err ) );
+            if (requested != 0 && lvgl_port_lock(1000)) {
+                lv_label_set_text(set_confirm_label, "Error");
+                lvgl_port_unlock();
+            }
             continue;
         }
         char clock_buf[ 26 ];
@@ -189,8 +192,7 @@ void clock_task( void *pvParameters )
             {
                 lv_roller_set_selected( hour_roller, current_time.tm_hour, LV_ANIM_OFF );
                 lv_roller_set_selected( minute_roller, current_time.tm_min, LV_ANIM_OFF );
-                lv_label_set_text_static( set_confirm_label, "Set" );
-                lv_obj_set_style_text_color( set_confirm_label, lv_color_hex( UI_ACCENT_COLOR ), 0 );
+                lv_label_set_text_static( set_confirm_label, requested != 0 ? "Saved" : "Set" );
             }
             lvgl_port_unlock();
         }

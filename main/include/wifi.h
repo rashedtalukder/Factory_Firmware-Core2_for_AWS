@@ -30,3 +30,4 @@
 extern TaskHandle_t wifi_handle;
 
 void display_wifi_tab( lv_obj_t *tv );
+void wifi_set_active(bool active);

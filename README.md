@@ -36,7 +36,7 @@ git submodule update --init --recursive
 
 ## Build
 
-The project targets PlatformIO `espressif32` `7.0.1`, which bundles ESP-IDF `6.0.1` and the GCC 15.2 toolchain. Build the firmware with:
+The project targets PlatformIO `espressif32` `7.1.2`, which bundles ESP-IDF `6.1.0` and the GCC 15.2 toolchain. Build the firmware with:
 
 ```shell
 pio run -e core2foraws
@@ -49,6 +49,14 @@ ESP-IDF 6 no longer supports CryptoAuthLib's mbedTLS ALT integration. The BSP's 
 Cloud-synced folders can interfere with the component manager while it replaces generated dependencies. If configuration reports a managed-component file disappearing during extraction, build from a local non-synced checkout.
 
 ## Important files/folders
+
+See [tests/README.md](tests/README.md) for native regressions and the on-device
+factory smoke script. The factory uses cooperative tab workers, an
+application-owned interrupt-driven UART console, and the independent screenshot
+component for middle-button long-press captures. Home's Status view reports
+internal/DMA memory and capture counters; display-capable startup failures offer
+a normal reboot retry. The optional UI-test and screenshot serial listeners
+remain disabled in the normal configuration.
 
 ### main/main.c
 

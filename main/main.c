@@ -27,6 +27,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <fcntl.h>
+#include "driver/uart.h"
+#include "driver/uart_vfs.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -66,6 +69,43 @@
 #endif
 
 static const char *TAG = "MAIN";
+static esp_err_t console_start(void)
+{
+#ifdef CONFIG_ESP_CONSOLE_UART
+    if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM)) {
+        esp_err_t result = uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 2048, 0, 0, NULL, 0);
+        if (result != ESP_OK) return result;
+    }
+    uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+    int flags = fcntl(fileno(stdin), F_GETFL);
+    if (flags < 0 || fcntl(fileno(stdin), F_SETFL, flags | O_NONBLOCK) < 0) return ESP_FAIL;
+#endif
+    return ESP_OK;
+}
+
+static void restart_button_cb(lv_event_t *event)
+{
+    (void)event;
+    esp_restart();
+}
+
+static void show_startup_error(esp_err_t error)
+{
+    if (core2foraws_display_ptr == NULL || !lvgl_port_lock(1000)) return;
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_clean(screen);
+    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *label = lv_label_create(screen);
+    lv_obj_set_width(label, 280);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text_fmt(label, "Hardware initialization failed\n%s", esp_err_to_name(error));
+    lv_obj_t *retry = lv_button_create(screen);
+    lv_obj_set_size(retry, 112, 36);
+    lv_label_set_text(lv_label_create(retry), LV_SYMBOL_REFRESH " Retry");
+    lv_obj_add_event_cb(retry, restart_button_cb, LV_EVENT_CLICKED, NULL);
+    lvgl_port_unlock();
+}
 
 static void ui_start(void);
 static void tab_event_cb(lv_event_t *e);
@@ -76,9 +116,9 @@ static void screenshot_button_cb(enum core2foraws_button_btns button,
 {
     if (button == BUTTON_MIDDLE && event == LONGPRESS)
     {
-        esp_err_t err = screenshot_take();
+        esp_err_t err = screenshot_take_async( NULL, NULL, NULL );
         if ( err != ESP_OK )
-            ESP_LOGE( TAG, "Screenshot failed: %s", esp_err_to_name( err ) );
+            ESP_LOGE( TAG, "Screenshot request failed: %s", esp_err_to_name( err ) );
     }
 }
 
@@ -98,6 +138,8 @@ LV_IMAGE_DECLARE( powered_by_aws_logo );
 
 void app_main( void )
 {
+    esp_err_t console_result = console_start();
+    if (console_result != ESP_OK) ESP_LOGE(TAG, "Console startup failed: %s", esp_err_to_name(console_result));
     ESP_LOGI( TAG, "\n***************************************************\n M5Stack Core2 for AWS IoT EduKit Factory Firmware\n***************************************************" );
 
     esp_log_level_set( "gpio", ESP_LOG_NONE );
@@ -107,6 +149,7 @@ void app_main( void )
     if ( err != ESP_OK )
     {
         ESP_LOGE( TAG, "Hardware initialization failed: %s", esp_err_to_name( err ) );
+        show_startup_error(err);
         return;
     }
     ESP_LOGI( TAG, "Hardware drivers initialized" );
@@ -120,7 +163,8 @@ void app_main( void )
         ESP_LOGE( TAG, "Failed to initialize UI test harness: %s", esp_err_to_name( err ) );
 #endif
 
-    screenshot_init();
+    err = screenshot_start();
+    if (err != ESP_OK) ESP_LOGE(TAG, "Screenshot startup failed: %s", esp_err_to_name(err));
     err = core2foraws_button_register_callback( BUTTON_MIDDLE, LONGPRESS, screenshot_button_cb );
     if ( err != ESP_OK )
         ESP_LOGE( TAG, "Failed to register screenshot button: %s", esp_err_to_name( err ) );
@@ -167,6 +211,7 @@ static void ui_start( void )
 
     /* Page title label — pinned left */
     page_title_label = lv_label_create( top_bar );
+    ui_test_id(page_title_label, "page.title");
     lv_label_set_text_static( page_title_label, "Home" );
     lv_obj_set_style_text_color( page_title_label, lv_color_hex( 0xffffff ), 0 );
     lv_obj_set_style_text_font( page_title_label, LV_FONT_DEFAULT, 0 );
@@ -212,6 +257,7 @@ static void ui_start( void )
 
     /* ── Tabview: grows to fill remaining space ───────────────────────── */
     tab_view = lv_tabview_create( core2forAWS_obj );
+    ui_test_id(tab_view, "tabs");
     lv_tabview_set_tab_bar_position( tab_view, LV_DIR_TOP );
     lv_tabview_set_tab_bar_size( tab_view, 0 );
     lv_obj_set_width( tab_view, lv_pct( 100 ) );
@@ -278,6 +324,7 @@ static const char *tab_display_names[] = {
 static void tab_event_cb( lv_event_t *e )
 {
     uint16_t tab_idx = lv_tabview_get_tab_active( tab_view );
+    if (tab_idx >= NUM_TABS) return;
     const char *tab_name = tab_names[ tab_idx ];
     ESP_LOGI( TAG, "Active tab: %s", tab_name );
     touch_set_active( strcmp( tab_name, TOUCH_TAB_NAME ) == 0 );
@@ -287,31 +334,11 @@ static void tab_event_cb( lv_event_t *e )
         lv_obj_set_style_bg_color( page_dots[i], ( i == tab_idx ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
     lv_label_set_text_static( page_title_label, tab_display_names[ tab_idx ] );
 
-    /* Deactivate or suspend per-tab worker tasks. These are guarded against NULL: a task
-     * handle is NULL if its xTaskCreate failed (e.g. low internal RAM). Passing
-     * NULL to vTaskSuspend() would suspend THIS task (taskLVGL) while it holds
-     * the LVGL lock, hanging the whole UI — so every handle must be checked. */
     mpu_set_active( strcmp( tab_name, MPU_TAB_NAME ) == 0 );
-    if ( mic_handle )            vTaskSuspend( mic_handle );
-    if ( FFT_handle )            vTaskSuspend( FFT_handle );
-    if ( wifi_handle )           vTaskSuspend( wifi_handle );
-    if ( led_bar_solid_handle )  vTaskSuspend( led_bar_solid_handle );
-    if ( led_bar_animation_handle ) vTaskResume( led_bar_animation_handle );
+    microphone_set_active(strcmp(tab_name, MICROPHONE_TAB_NAME) == 0);
+    wifi_set_active(strcmp(tab_name, WIFI_TAB_NAME) == 0);
+    led_bar_set_active(strcmp(tab_name, LED_BAR_TAB_NAME) == 0);
 
     if ( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 )
         update_roller_time();
-    else if (strcmp( tab_name, MICROPHONE_TAB_NAME ) == 0 )
-    {
-        if ( mic_handle ) vTaskResume( mic_handle );
-        if ( FFT_handle ) vTaskResume( FFT_handle );
-    } 
-    else if ( strcmp( tab_name, LED_BAR_TAB_NAME ) == 0 )
-    {
-        if ( led_bar_animation_handle ) vTaskSuspend( led_bar_animation_handle );
-        if ( led_bar_solid_handle )     vTaskResume( led_bar_solid_handle );
-    }
-    else if ( strcmp( tab_name, WIFI_TAB_NAME ) == 0 )
-    {
-        if ( wifi_handle ) vTaskResume( wifi_handle );
-    }
 }

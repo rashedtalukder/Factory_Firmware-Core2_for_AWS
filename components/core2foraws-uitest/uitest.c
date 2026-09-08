@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
@@ -53,11 +54,23 @@ static SemaphoreHandle_t s_inject_lock;
 static TaskHandle_t  s_listener_task;
 static int16_t       s_last_x;
 static int16_t       s_last_y;
+static atomic_bool s_release_pending;
+static atomic_flag s_init_busy = ATOMIC_FLAG_INIT;
+static atomic_bool s_ready;
 
 static void indev_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     (void)indev;
     inject_sample_t s;
+
+    if (atomic_exchange(&s_release_pending, false)) {
+        lv_indev_reset(indev, NULL);
+        data->point.x = s_last_x;
+        data->point.y = s_last_y;
+        data->state = LV_INDEV_STATE_RELEASED;
+        if (s_listener_task != NULL) xTaskNotifyGive(s_listener_task);
+        return;
+    }
 
     if (s_sample_q != NULL &&
         xQueueReceive(s_sample_q, &s, 0) == pdTRUE) {
@@ -129,7 +142,7 @@ static esp_err_t validate_two_points(int16_t x0, int16_t y0,
 
 static esp_err_t reserve_samples(size_t sample_count)
 {
-    if (s_sample_q == NULL || s_inject_lock == NULL) {
+    if (!atomic_load(&s_ready)) {
         return ESP_ERR_INVALID_STATE;
     }
     if (sample_count == 0 || sample_count > CONFIG_UITEST_SAMPLE_QUEUE_DEPTH) {
@@ -169,12 +182,25 @@ static void finish_samples(void)
     xSemaphoreGive(s_inject_lock);
 }
 
+esp_err_t uitest_cancel(void)
+{
+    if (!atomic_load(&s_ready)) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_inject_lock, pdMS_TO_TICKS(CONFIG_UITEST_DRAIN_TIMEOUT_MS)) != pdTRUE)
+        return ESP_ERR_TIMEOUT;
+    xQueueReset(s_sample_q);
+    atomic_store(&s_release_pending, true);
+    xSemaphoreGive(s_inject_lock);
+    return ESP_OK;
+}
+
 static esp_err_t wait_drained(void)
 {
     ulTaskNotifyTake(pdTRUE, 0);
-    while (s_sample_q != NULL && uxQueueMessagesWaiting(s_sample_q) > 0) {
+        while (s_sample_q != NULL &&
+            (uxQueueMessagesWaiting(s_sample_q) > 0 || atomic_load(&s_release_pending))) {
         if (ulTaskNotifyTake(pdTRUE,
                 pdMS_TO_TICKS(CONFIG_UITEST_DRAIN_TIMEOUT_MS)) == 0) {
+            uitest_cancel();
             return ESP_ERR_TIMEOUT;
         }
     }
@@ -287,19 +313,23 @@ esp_err_t uitest_register(lv_obj_t *obj, const char *id)
     }
 
     int available = -1;
+    int existing = -1;
     for (int i = 0; i < CONFIG_UITEST_MAX_REGISTERED; i++) {
         if (s_registry[i].obj == obj) {
-            memcpy(s_registry[i].id, id, id_length + 1);
-            lvgl_port_unlock();
-            return ESP_OK;
+            existing = i;
         }
-        if (s_registry[i].obj != NULL && strcmp(s_registry[i].id, id) == 0) {
+        if (s_registry[i].obj != NULL && s_registry[i].obj != obj && strcmp(s_registry[i].id, id) == 0) {
             lvgl_port_unlock();
             return ESP_ERR_INVALID_STATE;
         }
         if (available < 0 && s_registry[i].obj == NULL) {
             available = i;
         }
+    }
+    if (existing >= 0) {
+        memcpy(s_registry[existing].id, id, id_length + 1);
+        lvgl_port_unlock();
+        return ESP_OK;
     }
     if (available < 0) {
         lvgl_port_unlock();
@@ -331,6 +361,7 @@ static lv_obj_t *registry_find_locked(const char *id)
 
 static void reply_ok(const char *fmt, ...)
 {
+    flockfile(stdout);
     printf("%s: OK ", RESP_PREFIX);
     va_list ap;
     va_start(ap, fmt);
@@ -338,6 +369,7 @@ static void reply_ok(const char *fmt, ...)
     va_end(ap);
     printf("\n");
     fflush(stdout);
+    funlockfile(stdout);
 }
 
 static void reply_err(const char *msg)
@@ -474,6 +506,7 @@ static void cmd_dump(void)
     bool truncated = false;
     esp_err_t err = dump_snapshot(nodes, &node_count, &truncated);
 
+    flockfile(stdout);
     printf("---%s_DUMP_START---\n", RESP_PREFIX);
     if (err == ESP_OK) {
         uint32_t crc = 0;
@@ -510,7 +543,56 @@ static void cmd_dump(void)
     }
     printf("---%s_DUMP_END---\n", RESP_PREFIX);
     fflush(stdout);
+    funlockfile(stdout);
     free(nodes);
+}
+
+static bool widget_enabled(lv_obj_t *obj)
+{
+    for (lv_obj_t *ancestor = obj; ancestor != NULL; ancestor = lv_obj_get_parent(ancestor)) {
+        if (lv_obj_has_state(ancestor, LV_STATE_DISABLED)) return false;
+    }
+    return true;
+}
+
+static void cmd_get(const char *id)
+{
+    if (!lvgl_port_lock(CONFIG_UITEST_LVGL_LOCK_TIMEOUT_MS)) {
+        reply_command_error("GET", ESP_ERR_TIMEOUT);
+        return;
+    }
+    lv_obj_t *obj = registry_find_locked(id);
+    if (obj == NULL) {
+        lvgl_port_unlock();
+        reply_command_error("GET", ESP_ERR_NOT_FOUND);
+        return;
+    }
+    lv_obj_update_layout(obj);
+    bool visible = lv_obj_is_visible(obj) && lv_obj_get_screen(obj) == lv_screen_active();
+    bool enabled = widget_enabled(obj);
+    bool checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
+    int32_t value = 0;
+    const char *text = "";
+    if (lv_obj_check_type(obj, &lv_label_class)) text = lv_label_get_text(obj);
+    else if (lv_obj_check_type(obj, &lv_textarea_class)) text = lv_textarea_get_text(obj);
+    else if (lv_obj_check_type(obj, &lv_slider_class)) value = lv_slider_get_value(obj);
+    else if (lv_obj_check_type(obj, &lv_roller_class)) value = lv_roller_get_selected(obj);
+    size_t length = strnlen(text, 128);
+    char encoded[257];
+    if (length >= 128) {
+        lvgl_port_unlock();
+        reply_command_error("GET", ESP_ERR_INVALID_SIZE);
+        return;
+    }
+    static const char hex[] = "0123456789abcdef";
+    for (size_t index = 0; index < length; index++) {
+        encoded[index * 2] = hex[(uint8_t)text[index] >> 4];
+        encoded[index * 2 + 1] = hex[(uint8_t)text[index] & 15];
+    }
+    encoded[length * 2] = '\0';
+    lvgl_port_unlock();
+    reply_ok("GET %s VISIBLE:%d ENABLED:%d CHECKED:%d VALUE:%ld TEXT:%s",
+             id, visible, enabled, checked, (long)value, length ? encoded : "-");
 }
 
 /* Center of a registered/clickable object -> a tap. */
@@ -522,10 +604,17 @@ static esp_err_t click_id(const char *id)
     lv_obj_t *obj = registry_find_locked(id);
     lv_area_t a = {0};
     bool actionable = obj != NULL && lv_obj_is_visible(obj) &&
+        widget_enabled(obj) &&
         lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE) &&
         lv_obj_get_screen(obj) == lv_screen_active();
     if (actionable) {
+        lv_obj_update_layout(obj);
         lv_obj_get_coords(obj, &a);
+        lv_point_t point = {.x = (a.x1 + a.x2) / 2, .y = (a.y1 + a.y2) / 2};
+        lv_obj_t *hit = lv_indev_search_obj(lv_layer_sys(), &point);
+        if (hit == NULL) hit = lv_indev_search_obj(lv_layer_top(), &point);
+        if (hit == NULL) hit = lv_indev_search_obj(lv_screen_active(), &point);
+        actionable = hit == obj;
     }
     lvgl_port_unlock();
 
@@ -561,7 +650,8 @@ static bool parse_int_args(const char *line, int32_t *values, size_t count)
         errno = 0;
         char *end;
         long value = strtol(cursor, &end, 10);
-        if (end == cursor || errno == ERANGE || value < INT32_MIN || value > INT32_MAX) {
+        if (end == cursor || errno == ERANGE || value < INT32_MIN || value > INT32_MAX ||
+            (*end != '\0' && !isspace((unsigned char)*end))) {
             return false;
         }
         values[i] = (int32_t)value;
@@ -616,6 +706,7 @@ static void finish_gesture_command(const char *command, esp_err_t err,
         return;
     }
 
+    flockfile(stdout);
     printf("%s: OK ", RESP_PREFIX);
     va_list args;
     va_start(args, reply_format);
@@ -623,17 +714,36 @@ static void finish_gesture_command(const char *command, esp_err_t err,
     va_end(args);
     printf("\n");
     fflush(stdout);
+    funlockfile(stdout);
 }
 
+
 #ifdef CONFIG_SCREENSHOT_ENABLED
+typedef struct {
+    SemaphoreHandle_t done;
+    esp_err_t result;
+} shot_completion_t;
+
 static void shot_done(uint32_t sequence, esp_err_t result, void *user_data)
 {
-    (void)user_data;
+    (void)sequence;
+    shot_completion_t *completion = user_data;
+    completion->result = result;
+    xSemaphoreGive(completion->done);
+}
+
+static esp_err_t shot_wait(void)
+{
+    StaticSemaphore_t storage;
+    shot_completion_t completion = {.done = xSemaphoreCreateBinaryStatic(&storage)};
+    if (completion.done == NULL) return ESP_ERR_NO_MEM;
+    esp_err_t result = screenshot_take_async(shot_done, &completion, NULL);
     if (result == ESP_OK) {
-        reply_ok("SHOT SEQ:%lu", (unsigned long)sequence);
-    } else {
-        reply_command_error("SHOT", result);
+        xSemaphoreTake(completion.done, portMAX_DELAY);
+        result = completion.result;
     }
+    vSemaphoreDelete(completion.done);
+    return result;
 }
 #endif
 
@@ -700,6 +810,10 @@ static void handle_line(char *line)
                                (long)args[0], (long)args[1],
                                (long)args[2], (long)args[3], (long)args[4]);
 
+    } else if (strcmp(verb, "GET") == 0) {
+        char id[CONFIG_UITEST_MAX_ID_LENGTH];
+        if (parse_id_arg(line, id, sizeof(id))) cmd_get(id);
+        else reply_err("GET <id>");
     } else if (strcmp(verb, "CLICK") == 0) {
         char id[CONFIG_UITEST_MAX_ID_LENGTH];
         if (parse_id_arg(line, id, sizeof(id))) {
@@ -709,11 +823,17 @@ static void handle_line(char *line)
             reply_err("CLICK <id>");
         }
 
+    } else if (strcmp(verb, "CANCEL") == 0 && command_has_no_args(line)) {
+        esp_err_t err = uitest_cancel();
+        if (err == ESP_OK) err = wait_drained();
+        if (err == ESP_OK) reply_ok("CANCEL");
+        else reply_command_error("CANCEL", err);
     } else if (strcmp(verb, "SHOT") == 0 && command_has_no_args(line)) {
 #ifdef CONFIG_SCREENSHOT_ENABLED
-    uint32_t sequence;
-    esp_err_t err = screenshot_take_async(shot_done, NULL, &sequence);
-    if (err != ESP_OK) reply_command_error("SHOT", err);
+    esp_err_t err = wait_drained();
+    if (err == ESP_OK) err = shot_wait();
+    if (err == ESP_OK) reply_ok("SHOT");
+    else reply_command_error("SHOT", err);
 #else
         reply_err("SHOT screenshot component disabled");
 #endif
@@ -748,7 +868,22 @@ static void listener_task(void *arg)
                 reply_err("command too long");
             } else if (length > 0) {
                 line[length] = '\0';
-                handle_line(line);
+                if (line[0] == '@') {
+                    char *end;
+                    errno = 0;
+                    unsigned long request = strtoul(line + 1, &end, 10);
+                    if (errno != 0 || request == 0 || !isdigit((unsigned char)line[1]) || *end != ' ') {
+                        reply_err("invalid request id");
+                    } else {
+                        printf("%s: BEGIN %lu\n", RESP_PREFIX, request);
+                        fflush(stdout);
+                        handle_line(end + 1);
+                        printf("%s: END %lu\n", RESP_PREFIX, request);
+                        fflush(stdout);
+                    }
+                } else {
+                    handle_line(line);
+                }
             }
             length = 0;
             overflow = false;
@@ -764,7 +899,7 @@ static void listener_task(void *arg)
 
 /* ── Initialization ─────────────────────────────────────────────── */
 
-esp_err_t uitest_init(void)
+static esp_err_t init_impl(void)
 {
     if (RESP_PREFIX[0] == '\0' || strpbrk(RESP_PREFIX, ":\r\n\t ") != NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -838,6 +973,7 @@ esp_err_t uitest_init(void)
         lvgl_port_unlock();
     }
 
+    atomic_store(&s_ready, true);
     BaseType_t ok = xTaskCreatePinnedToCore(
         listener_task, "uitest", CONFIG_UITEST_TASK_STACK_SIZE,
         NULL, 2, &s_listener_task, 0);
@@ -850,7 +986,17 @@ esp_err_t uitest_init(void)
     return ESP_OK;
 }
 
+esp_err_t uitest_init(void)
+{
+    if (atomic_flag_test_and_set(&s_init_busy)) return ESP_ERR_INVALID_STATE;
+    esp_err_t result = init_impl();
+    atomic_flag_clear(&s_init_busy);
+    return result;
+}
+
 #else
+
+esp_err_t uitest_cancel(void) { return ESP_ERR_NOT_SUPPORTED; }
 
 esp_err_t uitest_init(void)
 {

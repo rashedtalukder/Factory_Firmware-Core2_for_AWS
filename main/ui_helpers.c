@@ -6,12 +6,26 @@
  */
 
 #include "ui_helpers.h"
+#include "uitest.h"
+#include "esp_log.h"
+
+void ui_test_id(lv_obj_t *obj, const char *id)
+{
+#ifdef CONFIG_UITEST_ENABLED
+    esp_err_t err = uitest_register(obj, id);
+    if (err != ESP_OK) ESP_LOGE("UI", "Widget ID %s: %s", id, esp_err_to_name(err));
+#else
+    (void)obj;
+    (void)id;
+#endif
+}
 
 /* ── Tab page helper ───────────────────────────────────────────────────── */
 
 lv_obj_t *ui_tabview_add_tab( lv_obj_t *tv, const char *name )
 {
     lv_obj_t *tab = lv_tabview_add_tab( tv, name );
+    ui_test_id(tab, name);
     lv_obj_set_style_pad_all( tab, 0, 0 );
     lv_obj_set_style_bg_opa( tab, LV_OPA_TRANSP, 0 );
 

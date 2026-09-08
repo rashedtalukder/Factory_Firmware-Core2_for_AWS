@@ -1,5 +1,9 @@
 import unittest
 import zlib
+import tempfile
+import json
+from pathlib import Path
+from unittest import mock
 
 import uitest_runner
 
@@ -11,6 +15,7 @@ class ScriptedSerial:
         self.writes = []
         self.reset_count = 0
         self.is_open = True
+        self.timeout = 0.01
 
     def reset_input_buffer(self):
         self.pending.clear()
@@ -19,10 +24,13 @@ class ScriptedSerial:
     def write(self, data):
         self.writes.append(data)
         command = data.decode("ascii").strip()
+        request, command = command.split(" ", 1)
         response = self.responses.get(command, b"")
         if isinstance(response, str):
             response = response.encode("ascii")
+        self.pending.extend(f"UITEST: BEGIN {request[1:]}\n".encode("ascii"))
         self.pending.extend(response)
+        self.pending.extend(f"UITEST: END {request[1:]}\n".encode("ascii"))
         return len(data)
 
     def flush(self):
@@ -51,8 +59,37 @@ def make_client(serial, timeout=0.02):
 
 
 class ClientTests(unittest.TestCase):
+    def test_shot_reports_device_error_without_waiting_for_frame(self):
+        client = make_client(ScriptedSerial({"SHOT": "UITEST: ERR SHOT ESP_ERR_NO_MEM\n"}))
+        with self.assertRaisesRegex(ValueError, "ESP_ERR_NO_MEM"):
+            client.shot()
+
+    def test_get_and_assert_text(self):
+        client = make_client(ScriptedSerial({"GET title":
+            "UITEST: OK GET title VISIBLE:1 ENABLED:1 CHECKED:0 VALUE:0 TEXT:486f6d65\n"}))
+        self.assertEqual(client.execute('ASSERT title text "Home"')["text"], "Home")
+        with self.assertRaises(AssertionError):
+            client.execute('ASSERT title text "Clock"')
+
+    def test_wait_observes_changes(self):
+        client = make_client(ScriptedSerial())
+        with mock.patch.object(client, "get", side_effect=[{"value": 1}, {"value": 2}]):
+            self.assertEqual(client.wait_for("slider", "value", 2), {"value": 2})
+
+    def test_failure_report_preserves_artifact_error(self):
+        client = make_client(ScriptedSerial())
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "script.txt"
+            script.write_text("ASSERT title visible true\n")
+            with mock.patch.object(client, "execute", side_effect=AssertionError("wrong state")):
+                with self.assertRaisesRegex(RuntimeError, "script failed"):
+                    client.run_script(script, directory)
+            report = json.loads((Path(directory) / "report.json").read_text())
+            self.assertFalse(report["passed"])
+            self.assertIn("artifact_error", report["steps"][0])
+
     def test_waits_for_ready_after_serial_open_reset(self):
-        serial = ScriptedSerial()
+        serial = ScriptedSerial({"INFO": "UITEST: OK INFO W:320 H:240 ROT:0 PERIOD:30\n"})
         serial.pending.extend(
             b"ets Jul 29 2019 12:21:46\n"
             b"rst:0x1 (POWERON_RESET),boot:0x17\n"
@@ -80,7 +117,7 @@ class ClientTests(unittest.TestCase):
         lines = make_client(serial).info()
         self.assertEqual(lines[-1], "UITEST: OK INFO W:320 H:240 ROT:0 PERIOD:30")
         self.assertEqual(serial.reset_count, 1)
-        self.assertEqual(serial.writes, [b"INFO\n"])
+        self.assertEqual(serial.writes, [b"@1 INFO\n"])
 
     def test_raises_matching_device_error(self):
         serial = ScriptedSerial({"TAP 999 999": "UITEST: ERR TAP ESP_ERR_INVALID_ARG\n"})
@@ -152,6 +189,38 @@ class ClientTests(unittest.TestCase):
             client.command("INFO\nTAP 1 2")
         with self.assertRaises(ValueError):
             client.command("X" * (uitest_runner.MAX_COMMAND_BYTES + 1))
+
+    def test_rejects_wrong_gesture_arguments(self):
+        serial = ScriptedSerial({"TAP 10 20": "UITEST: OK TAP 250 230\n"})
+        with self.assertRaisesRegex(RuntimeError, "mismatched"):
+            make_client(serial).tap(10, 20)
+
+    def test_dump_dispatch_rejects_truncation(self):
+        serial = ScriptedSerial({"DUMP": (
+            "---UITEST_DUMP_START---\n"
+            "UITEST: DUMP CRC32:00000000 COUNT:0 TRUNCATED:1\n"
+            "---UITEST_DUMP_END---\n")})
+        with self.assertRaisesRegex(RuntimeError, "truncated"):
+            make_client(serial).command("DUMP")
+
+    def test_ignores_stale_request_envelope(self):
+        serial = ScriptedSerial({"INFO": "UITEST: OK INFO W:320 H:240\n"})
+        original_write = serial.write
+        def write(data):
+            count = original_write(data)
+            serial.pending[:0] = b"UITEST: BEGIN 999\nUITEST: OK INFO stale\nUITEST: END 999\n"
+            return count
+        serial.write = write
+        self.assertEqual(make_client(serial).info(), ["UITEST: OK INFO W:320 H:240"])
+
+    def test_shot_decodes_and_checks_crc(self):
+        serial = ScriptedSerial({"SHOT": (
+            "---SCREENSHOT_START---\nPROTO:2\nSEQ:7\nFRAME:FULL\n"
+            "CANVAS_W:1\nCANVAS_H:1\nW:1\nH:1\nSTRIDE:3\nFMT:RGB888\n"
+            "ENC:BASE64\nTRANSPORT:BASE64\nCRC32:00000000\nAQID\n"
+            "---SCREENSHOT_END---\nUITEST: OK SHOT\n")})
+        with self.assertRaisesRegex(ValueError, "CRC32"):
+            make_client(serial).shot()
 
 
 if __name__ == "__main__":

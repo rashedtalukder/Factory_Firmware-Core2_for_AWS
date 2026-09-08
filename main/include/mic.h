@@ -30,5 +30,6 @@
 extern TaskHandle_t mic_handle, FFT_handle;
 
 void display_microphone_tab( lv_obj_t *tv );
+void microphone_set_active(bool active);
 void microphoneTask( void *pvParameters );
 void fft_show_task( void *pvParameters );

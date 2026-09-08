@@ -79,6 +79,7 @@ void display_touch_tab( lv_obj_t *tv )
     lv_obj_set_style_margin_top( instruction_label, 2, 0 );
 
     button_touch_label = lv_label_create( touch_bg );
+    ui_test_id(button_touch_label, "touch.status");
     lv_label_set_text_static( button_touch_label, "No button pressed yet" );
     lv_obj_set_style_text_align( button_touch_label, LV_TEXT_ALIGN_CENTER, 0 );
     lv_obj_set_style_margin_top( button_touch_label, 6, 0 );
@@ -169,10 +170,12 @@ void touch_on_right_press( void )
     if ( !atomic_load( &touch_tab_active ) ) return;
 
     ESP_LOGI( TAG, "Right button was tapped" );
-    b += 0x10;
 
     lvgl_port_lock( 0 );
-    update_touch_card( "Right button", TOUCH_RIGHT_COLOR );
+    if (atomic_load(&touch_tab_active)) {
+        b += 0x10;
+        update_touch_card( "Right button", TOUCH_RIGHT_COLOR );
+    }
     lvgl_port_unlock();
 }
 
@@ -183,19 +186,23 @@ static void touch_button_callback( enum core2foraws_button_btns button, press_ev
     if ( button == BUTTON_LEFT )
     {
         ESP_LOGI( TAG, "Left button was tapped" );
-        r += 0x10;
 
         lvgl_port_lock( 0 );
-        update_touch_card( "Left button", TOUCH_LEFT_COLOR );
+        if (atomic_load(&touch_tab_active)) {
+            r += 0x10;
+            update_touch_card( "Left button", TOUCH_LEFT_COLOR );
+        }
         lvgl_port_unlock();
     }
     else if ( button == BUTTON_MIDDLE )
     {
         ESP_LOGI( TAG, "Middle button was tapped" );
-        g += 0x10;
 
         lvgl_port_lock( 0 );
-        update_touch_card( "Middle button", TOUCH_MIDDLE_COLOR );
+        if (atomic_load(&touch_tab_active)) {
+            g += 0x10;
+            update_touch_card( "Middle button", TOUCH_MIDDLE_COLOR );
+        }
         lvgl_port_unlock();
     }
     else if ( button == BUTTON_RIGHT )

@@ -25,6 +25,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -42,6 +43,13 @@
 #define AMAZON_ORANGE 16750848 // Amazon Orange in Decimal
 
 static SemaphoreHandle_t color_lock;
+static atomic_bool solid_active;
+
+void led_bar_set_active(bool active)
+{
+    atomic_store(&solid_active, active);
+    if (led_bar_animation_handle) xTaskNotifyGive(led_bar_animation_handle);
+}
 
 static uint8_t red = RED_AMAZON_ORANGE, green = GREEN_AMAZON_ORANGE, blue = BLUE_AMAZON_ORANGE;
 
@@ -126,6 +134,8 @@ void display_LED_bar_tab(lv_obj_t *tv)
         lv_label_set_text_static( lbl, sliders[i].name );
 
         lv_obj_t *slider = lv_slider_create( col );
+        static const char *slider_ids[] = {"led.red", "led.green", "led.blue"};
+        ui_test_id(slider, slider_ids[i]);
         lv_slider_set_range( slider, 0, 255 );
         lv_slider_set_value( slider, sliders[i].val, LV_ANIM_OFF );
         lv_obj_set_size( slider, 60, 10 );
@@ -140,12 +150,6 @@ void display_LED_bar_tab(lv_obj_t *tv)
     {
         led_bar_animation_handle = NULL;
         ESP_LOGE( TAG, "Failed to create sk6812AnimationTask (low internal memory)" );
-    }
-    if ( color_lock != NULL &&
-         xTaskCreatePinnedToCore( sk6812_solid_task, "sk6812SolidTask", configMINIMAL_STACK_SIZE * 3, NULL, 0, &led_bar_solid_handle, 1 ) != pdPASS )
-    {
-        led_bar_solid_handle = NULL;
-        ESP_LOGE( TAG, "Failed to create sk6812SolidTask (low internal memory)" );
     }
 }
 
@@ -179,30 +183,31 @@ static void blue_event_handler( lv_event_t *e )
     }
 }
 
-void sk6812_solid_task( void *pvParameters )
+static void show_solid_until_inactive(void)
 {
-    vTaskSuspend( NULL );
     uint8_t current_red = 0, current_green = 0, current_blue = 0;
     bool initialized = false;
     
-    while( 1 )
+    while( atomic_load(&solid_active) )
     {
         uint8_t next_red, next_green, next_blue;
         if ( color_snapshot( &next_red, &next_green, &next_blue ) &&
              ( !initialized || current_red != next_red || current_green != next_green || current_blue != next_blue ) )
         {
-            initialized = true;
-            current_red = next_red;
-            current_green = next_green;
-            current_blue = next_blue;
-            uint32_t color = ( current_red << 16 ) + ( current_green << 8 ) + current_blue;
+            uint32_t color = ( next_red << 16 ) + ( next_green << 8 ) + next_blue;
             esp_err_t err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, color );
             if ( err == ESP_OK )
                 err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, color );
-            led_commit( err, "solid color update" );
+            if (err == ESP_OK) err = core2foraws_rgb_led_brightness_set(100);
+            if (led_commit( err, "solid color update" )) {
+                initialized = true;
+                current_red = next_red;
+                current_green = next_green;
+                current_blue = next_blue;
+            }
             ESP_LOGD( TAG, "Color changed to #%.2x%.2x%.2x", current_red, current_green, current_blue );
         }
-        vTaskDelay( pdMS_TO_TICKS( 20 ) );
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
     };
 }
 
@@ -210,26 +215,31 @@ void sk6812_animation_task( void *pvParameters )
 {
     while ( 1 )
     {
+        if (atomic_load(&solid_active)) {
+            show_solid_until_inactive();
+            continue;
+        }
         led_commit( core2foraws_rgb_led_clear(), "clear" );
 
-        for ( uint8_t i = 0; i < 10; i++ )
+        for ( uint8_t i = 0; i < 10 && !atomic_load(&solid_active); i++ )
         {
             led_commit( core2foraws_rgb_led_single_color_set( i, AMAZON_ORANGE ), "animation update" );
             vTaskDelay( pdMS_TO_TICKS( 70 ) );
         }
 
-        for ( uint8_t i = 0; i < 10; i++ )
+        for ( uint8_t i = 0; i < 10 && !atomic_load(&solid_active); i++ )
         {
             led_commit( core2foraws_rgb_led_single_color_set( i, 0x000000 ), "animation update" );
             vTaskDelay( pdMS_TO_TICKS( 70 ) );
         }
 
+        if (atomic_load(&solid_active)) continue;
         esp_err_t err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_LEFT, 0x232f3e );
         if ( err == ESP_OK )
             err = core2foraws_rgb_led_side_color_set( RGB_LED_SIDE_RIGHT, 0xffffff );
         led_commit( err, "side color update" );
 
-        for ( uint8_t i = 40; i > 0; i-- )
+        for ( uint8_t i = 40; i > 0 && !atomic_load(&solid_active); i-- )
         {
             led_commit( core2foraws_rgb_led_brightness_set( i ), "brightness update" );
             vTaskDelay( pdMS_TO_TICKS( 25 ) );

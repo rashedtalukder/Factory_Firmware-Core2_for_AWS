@@ -45,19 +45,22 @@ void sound_task( void *pvParameters )
     {    
         extern const unsigned char music[ 120264 ];
         err = core2foraws_audio_speaker_write( ( const uint8_t * )music, 120264 );
+        if (err == ESP_OK) err = core2foraws_audio_speaker_drain();
         if ( err != ESP_OK )
             ESP_LOGE( TAG, "Failed to play startup sound: %s", esp_err_to_name( err ) );
 
-        esp_err_t disable_err = core2foraws_audio_speaker_enable( false );
-        if ( disable_err != ESP_OK )
-            ESP_LOGE( TAG, "Failed to disable speaker: %s", esp_err_to_name( disable_err ) );
-        else if ( err == ESP_OK )
-            ESP_LOGD( TAG, "Startup sound finished" );
     }
     else
     {
         ESP_LOGE( TAG, "Failed to enable speaker: %s", esp_err_to_name( err ) );
     }
+
+    esp_err_t disable_err;
+    while ((disable_err = core2foraws_audio_speaker_enable(false)) != ESP_OK) {
+        ESP_LOGW(TAG, "Speaker cleanup pending: %s", esp_err_to_name(disable_err));
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    if (err == ESP_OK) ESP_LOGD(TAG, "Startup sound finished");
 
     vTaskDelete( NULL ); // Deletes the current task from FreeRTOS task list and the FreeRTOS idle task will remove from memory.
 }

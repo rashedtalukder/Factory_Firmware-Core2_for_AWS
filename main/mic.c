@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <limits.h>
+#include <stdatomic.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,6 +23,23 @@
 #include "fft.h"
 
 TaskHandle_t mic_handle, FFT_handle;
+static atomic_bool microphone_active;
+static lv_obj_t *microphone_status;
+
+static void microphone_status_set(const char *text)
+{
+    if (lvgl_port_lock(1000)) {
+        lv_label_set_text(microphone_status, text);
+        lvgl_port_unlock();
+    }
+}
+
+void microphone_set_active(bool active)
+{
+    atomic_store(&microphone_active, active);
+    if (mic_handle) xTaskNotifyGive(mic_handle);
+    if (FFT_handle) xTaskNotifyGive(FFT_handle);
+}
 
 static const char *TAG = MICROPHONE_TAB_NAME;
 
@@ -64,10 +82,8 @@ void display_microphone_tab(lv_obj_t *tv)
     ui_card_title(card,"SPM1423 Microphone",
                   lv_palette_main(LV_PALETTE_LIME));
 
-    ui_card_text(card,
-        "The SPM1423 is an enhanced far-field MEMS microphone.\n\n"
-        "Say \"Hi EduKit\"",
-        lv_color_make(255,255,255));
+    microphone_status = ui_card_text(card, "Idle", lv_color_make(255,255,255));
+    ui_test_id(microphone_status, "mic.state");
 
     /* spectrum container */
     lv_obj_t *viz_panel = lv_obj_create(card);
@@ -107,8 +123,6 @@ void display_microphone_tab(lv_obj_t *tv)
 
 void microphoneTask(void *pvParameters)
 {
-    vTaskSuspend(NULL);
-
     QueueHandle_t queue = (QueueHandle_t)pvParameters;
 
     static int16_t mic_samples[FFT_SIZE];
@@ -116,28 +130,60 @@ void microphoneTask(void *pvParameters)
     size_t bytesread=0;
 
     esp_err_t err;
-    while((err=core2foraws_audio_mic_enable(true))!=ESP_OK)
-    {
-        ESP_LOGW(TAG,"Microphone busy; retrying: %s",esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
+    bool owns_microphone = false;
+    bool cleanup_pending = false;
 
-    fft_config_t *fft_plan =
-        fft_init(FFT_SIZE,FFT_REAL,FFT_FORWARD,NULL,NULL);
-
-    if(fft_plan==NULL)
-    {
-        ESP_LOGE(TAG,"fft_init failed");
-        core2foraws_audio_mic_enable(false);
-        mic_handle=NULL;
-        vTaskDelete(NULL);
-        return;
-    }
+    fft_config_t *fft_plan = NULL;
 
     mic_frame_t frame;
 
     for(;;)
     {
+        if (cleanup_pending) {
+            err = core2foraws_audio_mic_enable(false);
+            if (err != ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
+            cleanup_pending = false;
+            owns_microphone = false;
+            microphone_status_set("Idle");
+        }
+        if (!atomic_load(&microphone_active)) {
+            if (owns_microphone) {
+                err = core2foraws_audio_mic_enable(false);
+                if (err != ESP_OK) {
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    continue;
+                }
+                owns_microphone = false;
+                microphone_status_set("Idle");
+            }
+            if (fft_plan != NULL) {
+                fft_destroy(fft_plan);
+                fft_plan = NULL;
+            }
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+            continue;
+        }
+        if (fft_plan == NULL) {
+            fft_plan = fft_init(FFT_SIZE,FFT_REAL,FFT_FORWARD,NULL,NULL);
+            if (fft_plan == NULL) {
+                ESP_LOGW(TAG, "FFT allocation failed; retrying");
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
+        }
+        if (!owns_microphone) {
+            err = core2foraws_audio_mic_enable(true);
+            if (err != ESP_OK) {
+                cleanup_pending = true;
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
+            owns_microphone = true;
+            microphone_status_set("Listening");
+        }
         memset(&frame,0,sizeof(frame));
 
         err=core2foraws_audio_mic_read(
@@ -189,15 +235,17 @@ void microphoneTask(void *pvParameters)
 
 void fft_show_task(void *pvParameters)
 {
+retry:
+    while (!atomic_load(&microphone_active))
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     QueueHandle_t mic_queue =
         xQueueCreate(MIC_QUEUE_LEN,sizeof(mic_frame_t));
 
     if(mic_queue==NULL)
     {
         ESP_LOGE(TAG,"Failed to create mic queue");
-        FFT_handle=NULL;
-        vTaskDelete(NULL);
-        return;
+        vTaskDelay(pdMS_TO_TICKS(500));
+        goto retry;
     }
 
     static uint16_t position_data=0;
@@ -220,14 +268,15 @@ void fft_show_task(void *pvParameters)
             MALLOC_CAP_SPIRAM
         );
 
-    if(cbuf==NULL)
+    if(cbuf==NULL || canvas == NULL)
     {
+        if (canvas != NULL) lv_obj_delete(canvas);
+        free(cbuf);
         lvgl_port_unlock();
         ESP_LOGE(TAG,"Canvas alloc failed");
         vQueueDelete(mic_queue);
-        FFT_handle=NULL;
-        vTaskDelete(NULL);
-        return;
+        vTaskDelay(pdMS_TO_TICKS(500));
+        goto retry;
     }
 
     lv_canvas_set_buffer(
@@ -260,18 +309,23 @@ void fft_show_task(void *pvParameters)
     {
         mic_handle=NULL;
         ESP_LOGE(TAG,"Failed to create microphone task");
+        lvgl_port_lock(0);
+        lv_obj_delete(canvas);
+        lvgl_port_unlock();
+        free(cbuf);
         vQueueDelete(mic_queue);
-        FFT_handle=NULL;
-        vTaskDelete(NULL);
-        return;
+        vTaskDelay(pdMS_TO_TICKS(500));
+        goto retry;
     }
-
-    vTaskSuspend(NULL);
 
     extern const unsigned char color_map[768];
 
     for(;;)
     {
+        if (!atomic_load(&microphone_active)) {
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+            continue;
+        }
         if(xQueueReceive(
             mic_queue,
             &frame,

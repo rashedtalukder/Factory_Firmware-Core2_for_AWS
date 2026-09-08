@@ -25,6 +25,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -44,10 +45,17 @@
 #define WIFI_STA_STARTED_BIT BIT0
 
 TaskHandle_t wifi_handle;
+static atomic_bool scan_active;
 
-static EventGroupHandle_t _wifi_start_eg;
+void wifi_set_active(bool active)
+{
+    atomic_store(&scan_active, active);
+    if (wifi_handle) xTaskNotifyGive(wifi_handle);
+}
+
 
 static lv_obj_t *mbox;
+static lv_obj_t *scan_status;
 static lv_style_t modal_style;
 
 static const char *TAG = "WIFI_SCAN";
@@ -55,7 +63,6 @@ static const char *TAG = "WIFI_SCAN";
 static void wifi_scan_task( void *pvParameters );
 static void mbox_event_cb( lv_event_t *e );
 static void event_handler( lv_event_t *e );
-static void _on_sta_start( void *arg, esp_event_base_t base, int32_t id, void *data );
 
 void display_wifi_tab( lv_obj_t *tv )
 {
@@ -67,10 +74,12 @@ void display_wifi_tab( lv_obj_t *tv )
     /* Card with flex-column layout */
     lv_obj_t *card = ui_create_card( wifi_tab, lv_color_make( 0, 82, 118 ) );
     ui_card_title( card, "Wi-Fi Scan (2.4GHz)", lv_color_make(255,255,255) );
-    ui_card_text( card, "Built-in 2.4GHz Wi-Fi and Bluetooth shared radio.", lv_color_make(255,255,255) );
+    scan_status = ui_card_text(card, "Ready", lv_color_make(255,255,255));
+    ui_test_id(scan_status, "wifi.state");
 
     /* AP list fills remaining card space */
     lv_obj_t *ap_list = lv_list_create( card );
+    ui_test_id(ap_list, "wifi.results");
     lv_obj_set_width( ap_list, lv_pct( 100 ) );
     lv_obj_set_flex_grow( ap_list, 1 );
 
@@ -143,61 +152,9 @@ static void event_handler( lv_event_t *e )
     }
 }
 
-static void _on_sta_start( void *arg, esp_event_base_t base, int32_t id, void *data )
-{
-    if ( _wifi_start_eg )
-        xEventGroupSetBits( _wifi_start_eg, WIFI_STA_STARTED_BIT );
-}
-
 static void wifi_scan_task( void *pvParameters )
 {
-    vTaskSuspend( NULL );
-
-    /* Start Wi-Fi in STA mode so scanning is possible. The driver is already
-     * initialized by core2foraws_wifi_init(); we only need to set the mode and
-     * start the radio, then wait for WIFI_EVENT_STA_START before scanning. */
-    bool start_handler_registered = false;
-    _wifi_start_eg = xEventGroupCreate();
-    if ( _wifi_start_eg == NULL )
-    {
-        ESP_LOGE( TAG, "Failed to create Wi-Fi startup event group" );
-        goto setup_failed;
-    }
-
-    esp_err_t err = esp_event_handler_register( WIFI_EVENT, WIFI_EVENT_STA_START,
-                                                _on_sta_start, NULL );
-    if ( err != ESP_OK )
-    {
-        ESP_LOGE( TAG, "Failed to register Wi-Fi start handler: %s", esp_err_to_name( err ) );
-        goto setup_failed;
-    }
-    start_handler_registered = true;
-
-    err = esp_wifi_set_mode( WIFI_MODE_STA );
-    if ( err != ESP_OK )
-    {
-        ESP_LOGE( TAG, "Failed to set Wi-Fi station mode: %s", esp_err_to_name( err ) );
-        goto setup_failed;
-    }
-    esp_err_t start_err = esp_wifi_start();
-    if ( start_err != ESP_OK )
-    {
-        ESP_LOGE( TAG, "Failed to start Wi-Fi: %s", esp_err_to_name( start_err ) );
-        goto setup_failed;
-    }
-
-    /* Block until WIFI_EVENT_STA_START confirms the interface is ready */
-    EventBits_t start_bits = xEventGroupWaitBits( _wifi_start_eg, WIFI_STA_STARTED_BIT,
-                                                  pdFALSE, pdFALSE, pdMS_TO_TICKS( 5000 ) );
-    esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start );
-    start_handler_registered = false;
-    vEventGroupDelete( _wifi_start_eg );
-    _wifi_start_eg = NULL;
-    if ( !( start_bits & WIFI_STA_STARTED_BIT ) )
-    {
-        ESP_LOGE( TAG, "Timed out waiting for Wi-Fi station startup" );
-        goto setup_failed;
-    }
+    while (!atomic_load(&scan_active)) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
     core2foraws_common_heap_report( TAG, NULL );
 
@@ -206,83 +163,50 @@ static void wifi_scan_task( void *pvParameters )
 
     uint16_t number = DEFAULT_SCAN_LIST_SIZE;
     wifi_ap_record_t ap_info[ DEFAULT_SCAN_LIST_SIZE ];
-    uint16_t ap_count = 0;
     memset( ap_info, 0, sizeof( ap_info ) );
 
     while( 1 )
     {
-        if ( lvgl_port_lock( 1000 ) )
-        {
-            lv_obj_clean( ( lv_obj_t * )pvParameters );
-            lvgl_port_unlock();
-        }
-        else
-        {
-            ESP_LOGW( TAG, "LVGL lock timeout; skipping scan-list clear" );
-        }
-
-        esp_err_t scan_err = esp_wifi_scan_start( NULL, true );
-        if ( scan_err != ESP_OK )
-        {
-            ESP_LOGE( TAG, "Wi-Fi scan start failed: 0x%x", scan_err );
-            vTaskSuspend( NULL );
+        if (!atomic_load(&scan_active)) {
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
             continue;
         }
         number = DEFAULT_SCAN_LIST_SIZE;
-        esp_err_t count_err = esp_wifi_scan_get_ap_num( &ap_count );
-        if ( count_err != ESP_OK )
+        if (lvgl_port_lock(1000)) {
+            lv_label_set_text(scan_status, "Scanning...");
+            lvgl_port_unlock();
+        }
+        esp_err_t scan_err = core2foraws_wifi_scan(ap_info, &number);
+        if ( scan_err != ESP_OK )
         {
-            ESP_LOGE( TAG, "Failed to get AP count: %s", esp_err_to_name( count_err ) );
-            esp_wifi_clear_ap_list();
-            vTaskSuspend( NULL );
+            ESP_LOGE( TAG, "Wi-Fi scan start failed: 0x%x", scan_err );
+            if (lvgl_port_lock(1000)) {
+                lv_label_set_text_fmt(scan_status, "Scan failed: %s", esp_err_to_name(scan_err));
+                lvgl_port_unlock();
+            }
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
             continue;
         }
-        esp_err_t rec_err = esp_wifi_scan_get_ap_records( &number, ap_info );
-        if ( rec_err != ESP_OK )
-        {
-            ESP_LOGE( TAG, "Failed to get AP records: 0x%x", rec_err );
-            esp_wifi_clear_ap_list();
-            vTaskSuspend( NULL );
-            continue;
-        }
+        if (!atomic_load(&scan_active) || !lvgl_port_lock(1000)) continue;
+        lv_label_set_text(scan_status, "Scan complete");
+        lv_obj_clean((lv_obj_t *)pvParameters);
 
-        ESP_LOGI( TAG, "Total APs scanned = %u", ap_count );
-
-        if ( number == 0 && lvgl_port_lock( 1000 ) )
+        if ( number == 0 )
         {
             lv_list_add_text( ( lv_obj_t * )pvParameters, "No networks found" );
-            lvgl_port_unlock();
         }
         
         for ( int i = 0; i < number; i++ )
         {
-            if ( lvgl_port_lock( 1000 ) )
-            {
                 const char *ssid = ap_info[ i ].ssid[ 0 ] ? ( char * )ap_info[ i ].ssid : "<hidden network>";
                 list_btn = lv_list_add_button( ( lv_obj_t * )pvParameters, LV_SYMBOL_WIFI, ssid );
                 lv_obj_add_event_cb( list_btn, event_handler, LV_EVENT_CLICKED, NULL );
-                lvgl_port_unlock();
-            }
-            else
-            {
-                ESP_LOGW( TAG, "LVGL lock timeout; skipping AP list entry" );
-            }
 
             ESP_LOGI( TAG, "SSID \t\t%s", ap_info[ i ].ssid );
             ESP_LOGI( TAG, "RSSI \t\t%d", ap_info[ i ].rssi );
             ESP_LOGI( TAG, "Channel \t\t%d\n", ap_info[ i ].primary );
         }
-        vTaskSuspend( NULL );
+        lvgl_port_unlock();
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
     }
-
-setup_failed:
-    if ( start_handler_registered )
-        esp_event_handler_unregister( WIFI_EVENT, WIFI_EVENT_STA_START, _on_sta_start );
-    if ( _wifi_start_eg != NULL )
-    {
-        vEventGroupDelete( _wifi_start_eg );
-        _wifi_start_eg = NULL;
-    }
-    wifi_handle = NULL;
-    vTaskDelete( NULL );
 }

@@ -36,6 +36,9 @@ extern "C" {
  */
 esp_err_t uitest_init(void);
 
+/** Cancel queued gestures and reset the pointer on its next LVGL read. */
+esp_err_t uitest_cancel(void);
+
 /**
  * @brief Associate a stable string id with an LVGL object.
  *

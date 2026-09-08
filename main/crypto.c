@@ -67,8 +67,8 @@ void display_crypto_tab( lv_obj_t *tv )
         ESP_LOGD( TAG, "Secure element serial: %s", device_serial );
         char sn_pretext[] = "Serial  # ";
         size_t sn_pretext_len = strlen( sn_pretext );
-        char sn_label_text[ CRYPTO_SERIAL_STR_SIZE + sn_pretext_len - 1 ];
-        snprintf( sn_label_text, CRYPTO_SERIAL_STR_SIZE + sn_pretext_len - 1, "%s%s", sn_pretext, device_serial );
+        char sn_label_text[ CRYPTO_SERIAL_STR_SIZE + sn_pretext_len ];
+        snprintf( sn_label_text, sizeof(sn_label_text), "%s%s", sn_pretext, device_serial );
         lvgl_port_lock( 0 );
         lv_obj_t *serial_label = lv_label_create( card );
         lv_label_set_text( serial_label, sn_label_text );

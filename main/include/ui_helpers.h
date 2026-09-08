@@ -11,6 +11,8 @@
 
 #include "lvgl.h"
 
+void ui_test_id(lv_obj_t *obj, const char *id);
+
 /* ── Design tokens ─────────────────────────────────────────────────────── */
 #define UI_SCREEN_BG_COLOR   0x1a1a2e   /* dark navy background           */
 #define UI_ACCENT_COLOR      0xff9900   /* Amazon Orange                   */

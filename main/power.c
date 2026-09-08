@@ -70,6 +70,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_set_flex_grow( btn_row, 1 );
 
     lv_obj_t *pwr_led_btn = lv_button_create( btn_row );
+    ui_test_id(pwr_led_btn, "power.led");
     lv_obj_set_size( pwr_led_btn, 76, 38 );
     lv_obj_add_flag( pwr_led_btn, LV_OBJ_FLAG_CHECKABLE );
     style_toggle_button( pwr_led_btn );
@@ -79,6 +80,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_label_set_text_static( led_label, "LED" );
 
     lv_obj_t *vibr_btn = lv_button_create( btn_row );
+    ui_test_id(vibr_btn, "power.motor");
     lv_obj_set_size( vibr_btn, 76, 38 );
     lv_obj_add_flag( vibr_btn, LV_OBJ_FLAG_CHECKABLE );
     style_toggle_button( vibr_btn );
@@ -87,6 +89,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_label_set_text_static( vibr_label, "Motor" );
 
     lv_obj_t *scrn_btn = lv_button_create( btn_row );
+    ui_test_id(scrn_btn, "power.screen");
     lv_obj_set_size( scrn_btn, 76, 38 );
     lv_obj_add_flag( scrn_btn, LV_OBJ_FLAG_CHECKABLE );
     style_toggle_button( scrn_btn );
@@ -124,6 +127,8 @@ static void brightness_event_handler( lv_event_t *e )
     if ( err != ESP_OK )
     {
         ESP_LOGE( TAG, "Failed to set screen brightness: %s", esp_err_to_name( err ) );
+        if (checked) lv_obj_remove_state(obj, LV_STATE_CHECKED);
+        else lv_obj_add_state(obj, LV_STATE_CHECKED);
         return;
     }
     
@@ -139,6 +144,8 @@ static void led_event_handler( lv_event_t *e )
     if ( err != ESP_OK )
     {
         ESP_LOGE( TAG, "Failed to set power LED: %s", esp_err_to_name( err ) );
+        if (checked) lv_obj_remove_state(obj, LV_STATE_CHECKED);
+        else lv_obj_add_state(obj, LV_STATE_CHECKED);
         return;
     }
     ESP_LOGI( TAG, "LED state: %d", checked );
@@ -153,6 +160,8 @@ static void vibration_event_handler( lv_event_t *e )
     if ( err != ESP_OK )
     {
         ESP_LOGE( TAG, "Failed to set vibration motor: %s", esp_err_to_name( err ) );
+        if (checked) lv_obj_remove_state(obj, LV_STATE_CHECKED);
+        else lv_obj_add_state(obj, LV_STATE_CHECKED);
         return;
     }
     
@@ -172,7 +181,7 @@ void battery_task( void *pvParameters )
 
         bool charging;
         if ( err == ESP_OK )
-            err = core2foraws_power_plugged_get( &charging );
+            err = core2foraws_power_charging_get( &charging );
         if ( err != ESP_OK )
         {
             ESP_LOGW( TAG, "Battery status read failed: %s", esp_err_to_name( err ) );

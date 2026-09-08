@@ -36,8 +36,64 @@
 
 #include "ui_helpers.h"
 #include "home.h"
+#include "screenshot.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = HOME_TAB_NAME;
+
+static void diagnostics_refresh(lv_event_t *event)
+{
+    lv_obj_t *label = lv_event_get_user_data(event);
+    screenshot_stats_t stats = {0};
+    esp_err_t result = screenshot_start();
+    screenshot_get_stats(&stats);
+    lv_label_set_text_fmt(label,
+        "Hardware initialized\nInternal: %u bytes\nDMA: %u bytes\nCaptures: %lu / errors: %lu\nLast: %lu ms\nCapture: %s",
+        (unsigned int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+        (unsigned int)heap_caps_get_free_size(MALLOC_CAP_DMA),
+        (unsigned long)stats.completed, (unsigned long)stats.failed,
+        (unsigned long)stats.last_duration_ms, esp_err_to_name(result));
+}
+
+static void diagnostics_close(lv_event_t *event)
+{
+    lv_obj_delete(lv_event_get_user_data(event));
+}
+
+static void diagnostics_open(lv_event_t *event)
+{
+    (void)event;
+    lv_obj_t *panel = lv_obj_create(lv_screen_active());
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_size(panel, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_radius(panel, 0, 0);
+    lv_obj_set_style_bg_color(panel, lv_color_hex(UI_SCREEN_BG_COLOR), 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_layout(panel, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *label = lv_label_create(panel);
+    lv_obj_set_width(label, lv_pct(100));
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_label_set_text(label, "Hardware initialized");
+    ui_test_id(label, "diagnostics.status");
+    lv_obj_t *row = lv_obj_create(panel);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, 248, 36);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *refresh = lv_button_create(row);
+    lv_obj_set_size(refresh, 112, 34);
+    lv_label_set_text(lv_label_create(refresh), LV_SYMBOL_REFRESH " Refresh");
+    lv_obj_add_event_cb(refresh, diagnostics_refresh, LV_EVENT_CLICKED, label);
+    ui_test_id(refresh, "diagnostics.refresh");
+    lv_obj_t *close = lv_button_create(row);
+    lv_obj_set_size(close, 112, 34);
+    lv_label_set_text(lv_label_create(close), LV_SYMBOL_CLOSE " Close");
+    lv_obj_add_event_cb(close, diagnostics_close, LV_EVENT_CLICKED, panel);
+    ui_test_id(close, "diagnostics.close");
+    lv_obj_send_event(refresh, LV_EVENT_CLICKED, NULL);
+}
 
 void display_home_tab( lv_obj_t *tv )
 {
@@ -78,6 +134,12 @@ void display_home_tab( lv_obj_t *tv )
     lv_label_set_long_mode( arrow_label, LV_LABEL_LONG_SCROLL_CIRCULAR );
     lv_obj_set_width( arrow_label, lv_pct( 90 ) );
     lv_obj_set_style_anim_duration( arrow_label, 8500, 0 );
+
+    lv_obj_t *status_button = lv_button_create(home_tab);
+    lv_obj_set_size(status_button, 108, 28);
+    lv_label_set_text(lv_label_create(status_button), LV_SYMBOL_SETTINGS " Status");
+    lv_obj_add_event_cb(status_button, diagnostics_open, LV_EVENT_CLICKED, NULL);
+    ui_test_id(status_button, "home.status");
 
     lvgl_port_unlock();
     
