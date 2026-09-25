@@ -64,7 +64,7 @@ static void diagnostics_open(lv_event_t *event)
 {
     (void)event;
     lv_obj_t *panel = lv_obj_create(lv_screen_active());
-    lv_obj_add_flag(panel, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_floating(panel, true);
     lv_obj_set_size(panel, lv_pct(100), lv_pct(100));
     lv_obj_set_style_radius(panel, 0, 0);
     lv_obj_set_style_bg_color(panel, lv_color_hex(UI_SCREEN_BG_COLOR), 0);
@@ -116,7 +116,7 @@ void display_home_tab( lv_obj_t *tv )
     /* Description */
     lv_obj_t *body_label = lv_label_create( home_tab );
     lv_obj_set_style_text_color( body_label, lv_color_hex( 0xaaaaaa ), 0 );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_MODE_WRAP );
     lv_label_set_text_static( body_label, "Swipe through to learn about some of the hardware features." );
     lv_obj_set_width( body_label, lv_pct( 85 ) );
     lv_obj_set_style_text_align( body_label, LV_TEXT_ALIGN_CENTER, 0 );
@@ -131,7 +131,7 @@ void display_home_tab( lv_obj_t *tv )
         LV_SYMBOL_LEFT "      Swipe to explore      "
     );
 
-    lv_label_set_long_mode( arrow_label, LV_LABEL_LONG_SCROLL_CIRCULAR );
+    lv_label_set_long_mode( arrow_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR );
     lv_obj_set_width( arrow_label, lv_pct( 90 ) );
     lv_obj_set_style_anim_duration( arrow_label, 8500, 0 );
 

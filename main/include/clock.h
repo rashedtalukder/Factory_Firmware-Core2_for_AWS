@@ -31,6 +31,6 @@ extern lv_obj_t *clock_tab;
 extern TaskHandle_t clock_handle;
 
 void display_clock_tab( lv_obj_t *tv );
-void update_roller_time();
+void clock_set_active( bool active );
 void clock_on_right_press( void );
 void clock_task( void *pvParameters );

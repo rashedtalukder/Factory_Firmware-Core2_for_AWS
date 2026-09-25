@@ -767,13 +767,13 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_IMG_POWERED_BY_AWS_LOGO uint8_t powere
 #endif
 };
 
-const lv_img_dsc_t powered_by_aws_logo = {
+const lv_image_dsc_t powered_by_aws_logo = {
   .header.magic = LV_IMAGE_HEADER_MAGIC,
   .header.w = 240,
   .header.h = 180,
   .header.stride = 240 * 2,
   .data_size = 240 * 180 * 3,
-  .header.cf = LV_COLOR_FORMAT_NATIVE_WITH_ALPHA,
+  .header.cf = LV_COLOR_FORMAT_RGB565A8,
   .data = powered_by_aws_logo_map,
 };
 

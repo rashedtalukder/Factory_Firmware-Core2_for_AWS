@@ -79,13 +79,13 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_IMG_GAUGE_HAN
 #endif
 };
 
-const lv_img_dsc_t gauge_hand = {
+const lv_image_dsc_t gauge_hand = {
   .header.magic = LV_IMAGE_HEADER_MAGIC,
   .header.w = 41,
   .header.h = 8,
   .header.stride = 41 * 2,
   .data_size = 41 * 8 * 3,
-  .header.cf = LV_COLOR_FORMAT_NATIVE_WITH_ALPHA,
+  .header.cf = LV_COLOR_FORMAT_RGB565A8,
   .data = gauge_hand_map,
 };
 

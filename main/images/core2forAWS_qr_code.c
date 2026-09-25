@@ -424,13 +424,13 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_IMG_CORE2FORA
 #endif
 };
 
-const lv_img_dsc_t core2forAWS_qr_code = {
+const lv_image_dsc_t core2forAWS_qr_code = {
   .header.magic = LV_IMAGE_HEADER_MAGIC,
   .header.w = 100,
   .header.h = 100,
   .header.stride = 100 * 2,
   .data_size = 100 * 100 * 2,
-  .header.cf = LV_COLOR_FORMAT_NATIVE,
+  .header.cf = LV_COLOR_FORMAT_RGB565,
   .data = core2forAWS_qr_code_map,
 };
 

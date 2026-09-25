@@ -90,7 +90,7 @@ void display_microphone_tab(lv_obj_t *tv)
 
     lv_obj_set_size(viz_panel,252,58);
 
-    lv_obj_clear_flag(viz_panel,LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(viz_panel, false);
 
     lv_obj_set_style_bg_color(viz_panel,lv_color_hex(0x050505),0);
     lv_obj_set_style_bg_opa(viz_panel,LV_OPA_COVER,0);
@@ -259,11 +259,10 @@ retry:
     lv_obj_t *canvas =
         lv_canvas_create((lv_obj_t*)pvParameters);
 
-    lv_color_t *cbuf =
+    void *cbuf =
         heap_caps_malloc(
-            CANVAS_WIDTH*
-            CANVAS_HEIGHT*
-            sizeof(lv_color_t),
+            LV_CANVAS_BUF_SIZE(CANVAS_WIDTH, CANVAS_HEIGHT, 16,
+                               LV_DRAW_BUF_STRIDE_ALIGN),
             MALLOC_CAP_DEFAULT|
             MALLOC_CAP_SPIRAM
         );
@@ -284,7 +283,7 @@ retry:
         cbuf,
         CANVAS_WIDTH,
         CANVAS_HEIGHT,
-        LV_COLOR_FORMAT_NATIVE
+        LV_COLOR_FORMAT_RGB565
     );
 
     lv_canvas_fill_bg(
@@ -320,6 +319,14 @@ retry:
 
     extern const unsigned char color_map[768];
 
+    static lv_color16_t palette[256];
+    for (int i = 0; i < 256; i++) {
+        palette[i].red = color_map[i * 3 + 0] >> 3;
+        palette[i].green = color_map[i * 3 + 1] >> 2;
+        palette[i].blue = color_map[i * 3 + 2] >> 3;
+    }
+    lv_draw_buf_t *draw_buf = lv_canvas_get_draw_buf(canvas);
+
     for(;;)
     {
         if (!atomic_load(&microphone_active)) {
@@ -340,26 +347,20 @@ retry:
                 continue;
             }
 
+            /* Write pixels directly: lv_canvas_set_px() invalidates the whole
+             * canvas on every call. */
             for(uint16_t y=0;y<CANVAS_HEIGHT;y++)
             {
-                uint8_t color_position =
-                    frame.spectrum[y];
-
-                lv_color_t px =
-                    lv_color_make(
-                        color_map[color_position*3+0],
-                        color_map[color_position*3+1],
-                        color_map[color_position*3+2]
-                    );
-
-                lv_canvas_set_px(
-                    canvas,
-                    position_data,
-                    y,
-                    px,
-                    LV_OPA_COVER
-                );
+                lv_color16_t *px =
+                    lv_draw_buf_goto_xy(draw_buf, position_data, y);
+                *px = palette[frame.spectrum[y]];
             }
+
+            lv_area_t column;
+            lv_obj_get_coords(canvas, &column);
+            column.x1 += position_data;
+            column.x2 = column.x1;
+            lv_obj_invalidate_area(canvas, &column);
 
             lvgl_port_unlock();
 

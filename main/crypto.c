@@ -79,7 +79,16 @@ void display_crypto_tab( lv_obj_t *tv )
     }
     else
     {
-        ESP_LOGE( TAG, "Secure element failure. Error code: %d", ret );
+        ESP_LOGE( TAG, "Secure element failure: %s", esp_err_to_name( ret ) );
+        if ( lvgl_port_lock( 1000 ) )
+        {
+            lv_obj_t *error_label = lv_label_create( card );
+            lv_label_set_text_static( error_label, "Serial # unavailable" );
+            lv_obj_set_style_text_align( error_label, LV_TEXT_ALIGN_CENTER, 0 );
+            lv_obj_set_style_text_color( error_label, lv_color_make(0,0,0), 0 );
+            lv_obj_set_width( error_label, lv_pct( 100 ) );
+            lvgl_port_unlock();
+        }
     }
 
     heap_caps_free( device_serial );

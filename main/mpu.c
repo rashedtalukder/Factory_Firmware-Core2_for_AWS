@@ -106,7 +106,7 @@ void display_mpu_tab(lv_obj_t *tv)
     lv_obj_set_flex_align( copy_wrap, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START );
 
     lv_obj_t *body_label = lv_label_create( copy_wrap );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_WRAP );
+    lv_label_set_long_mode( body_label, LV_LABEL_LONG_MODE_WRAP );
     lv_label_set_text_static( body_label,
                               "The Inertial\n"
                               "Measurement\n"
@@ -127,7 +127,7 @@ void display_mpu_tab(lv_obj_t *tv)
     lv_obj_set_flex_align( meter_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
 
     lv_obj_t *meter = lv_scale_create( meter_wrap );
-    lv_obj_remove_flag( meter, LV_OBJ_FLAG_CLICKABLE );
+    lv_obj_set_clickable( meter, false );
     lv_obj_set_size( meter, 94, 94 );
     lv_scale_set_mode( meter, LV_SCALE_MODE_ROUND_INNER );
     lv_scale_set_range( meter, -400, 400 );
@@ -184,7 +184,8 @@ void display_mpu_tab(lv_obj_t *tv)
 
     lvgl_port_unlock();
     
-    if ( xTaskCreatePinnedToCore( MPU_task, "MPUTask", 2048, ( void * ) meter,
+    /* 2 KB left too little headroom for esp_log's vprintf on error paths. */
+    if ( xTaskCreatePinnedToCore( MPU_task, "MPUTask", 3072, ( void * ) meter,
                                  1, &MPU_handle, 1 ) != pdPASS )
     {
         MPU_handle = NULL;
@@ -192,13 +193,35 @@ void display_mpu_tab(lv_obj_t *tv)
     }
 }
 
+#define GYRO_CALIBRATION_SAMPLES 32
+
 void MPU_task( void *pvParameters )
 {
     float calib_gx = 0.00;
     float calib_gy = 0.00;
     float calib_gz = 0.00;
+    esp_err_t err = ESP_OK;
 
-    esp_err_t err = core2foraws_motion_gyro_get( &calib_gx, &calib_gy, &calib_gz );
+    /* Average the zero-rate offset so one noisy sample does not skew the needles. */
+    int calib_count = 0;
+    for ( int i = 0; i < GYRO_CALIBRATION_SAMPLES; i++ )
+    {
+        float gx, gy, gz;
+        err = core2foraws_motion_gyro_get( &gx, &gy, &gz );
+        if ( err != ESP_OK )
+            break;
+        calib_gx += gx;
+        calib_gy += gy;
+        calib_gz += gz;
+        calib_count++;
+        vTaskDelay( 1 );
+    }
+    if ( calib_count > 0 )
+    {
+        calib_gx /= calib_count;
+        calib_gy /= calib_count;
+        calib_gz /= calib_count;
+    }
     if ( err != ESP_OK )
         ESP_LOGW( TAG, "IMU calibration read failed: %s", esp_err_to_name( err ) );
     

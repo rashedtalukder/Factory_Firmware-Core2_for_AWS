@@ -24,8 +24,6 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
 #include <fcntl.h>
 #include "driver/uart.h"
@@ -33,21 +31,10 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "freertos/queue.h"
-#include "freertos/event_groups.h"
 
-#include "esp_freertos_hooks.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "esp_vfs_fat.h"
-#include "driver/gpio.h"
-#include "driver/spi_common.h"
-#include "sdmmc_cmd.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "nvs_flash.h"
 
 #include "core2foraws.h"
 
@@ -186,8 +173,10 @@ static void ui_start( void )
 
     vTaskDelay( pdMS_TO_TICKS( 1500 ) );
     
+    /* Above the LVGL task (priority 4, core 1) so rendering the first screen
+     * cannot starve the short I2S DMA queue and make the speaker click. */
     if ( xTaskCreatePinnedToCore( sound_task, "soundTask", 4096 * 2,
-                                 NULL, 4, NULL, 1 ) != pdPASS )
+                                 NULL, 5, NULL, 1 ) != pdPASS )
         ESP_LOGE( TAG, "Failed to create startup sound task" );
     
     lvgl_port_lock( 0 );
@@ -207,7 +196,7 @@ static void ui_start( void )
     lv_obj_t *top_bar = lv_obj_create( core2forAWS_obj );
     lv_obj_remove_style_all( top_bar );
     lv_obj_set_size( top_bar, lv_pct( 100 ), 30 );
-    lv_obj_remove_flag( top_bar, LV_OBJ_FLAG_SCROLLABLE );
+    lv_obj_set_scrollable( top_bar, false );
 
     /* Page title label — pinned left */
     page_title_label = lv_label_create( top_bar );
@@ -235,7 +224,7 @@ static void ui_start( void )
         lv_obj_set_style_radius( page_dots[i], LV_RADIUS_CIRCLE, 0 );
         lv_obj_set_style_bg_opa( page_dots[i], LV_OPA_COVER, 0 );
         lv_obj_set_style_bg_color( page_dots[i], ( i == 0 ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
-        lv_obj_remove_flag( page_dots[i], LV_OBJ_FLAG_CLICKABLE );
+        lv_obj_set_clickable( page_dots[i], false );
     }
 
     /* Battery — fixed container pinned right, glyphs centered inside */
@@ -300,7 +289,11 @@ static const char *tab_names[] = {
 /* Routes BUTTON_RIGHT PRESS to the correct tab handler */
 static void right_button_dispatch_cb( enum core2foraws_button_btns button, press_event_t event )
 {
-    lvgl_port_lock( 0 );
+    if ( !lvgl_port_lock( 1000 ) )
+    {
+        ESP_LOGW( TAG, "LVGL lock timeout; ignoring right button" );
+        return;
+    }
     uint16_t idx = lv_tabview_get_tab_active( tab_view );
     lvgl_port_unlock();
     if ( idx >= NUM_TABS )
@@ -338,7 +331,5 @@ static void tab_event_cb( lv_event_t *e )
     microphone_set_active(strcmp(tab_name, MICROPHONE_TAB_NAME) == 0);
     wifi_set_active(strcmp(tab_name, WIFI_TAB_NAME) == 0);
     led_bar_set_active(strcmp(tab_name, LED_BAR_TAB_NAME) == 0);
-
-    if ( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 )
-        update_roller_time();
+    clock_set_active( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 );
 }

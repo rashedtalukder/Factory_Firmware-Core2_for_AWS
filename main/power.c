@@ -72,7 +72,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *pwr_led_btn = lv_button_create( btn_row );
     ui_test_id(pwr_led_btn, "power.led");
     lv_obj_set_size( pwr_led_btn, 76, 38 );
-    lv_obj_add_flag( pwr_led_btn, LV_OBJ_FLAG_CHECKABLE );
+    lv_obj_set_checkable( pwr_led_btn, true );
     style_toggle_button( pwr_led_btn );
     lv_obj_add_state( pwr_led_btn, LV_STATE_CHECKED );
     lv_obj_add_event_cb( pwr_led_btn, led_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
@@ -82,7 +82,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *vibr_btn = lv_button_create( btn_row );
     ui_test_id(vibr_btn, "power.motor");
     lv_obj_set_size( vibr_btn, 76, 38 );
-    lv_obj_add_flag( vibr_btn, LV_OBJ_FLAG_CHECKABLE );
+    lv_obj_set_checkable( vibr_btn, true );
     style_toggle_button( vibr_btn );
     lv_obj_add_event_cb( vibr_btn, vibration_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
     lv_obj_t *vibr_label = lv_label_create( vibr_btn );
@@ -91,7 +91,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *scrn_btn = lv_button_create( btn_row );
     ui_test_id(scrn_btn, "power.screen");
     lv_obj_set_size( scrn_btn, 76, 38 );
-    lv_obj_add_flag( scrn_btn, LV_OBJ_FLAG_CHECKABLE );
+    lv_obj_set_checkable( scrn_btn, true );
     style_toggle_button( scrn_btn );
     lv_obj_add_state( scrn_btn, LV_STATE_CHECKED );
     lv_obj_add_event_cb( scrn_btn, brightness_event_handler, LV_EVENT_VALUE_CHANGED, NULL );
@@ -170,9 +170,18 @@ static void vibration_event_handler( lv_event_t *e )
 
 void battery_task( void *pvParameters )
 {
+    static const struct { float min_volts; const char *symbol; uint32_t color; } levels[] = {
+        { 4.10f, LV_SYMBOL_BATTERY_FULL,  0x0ab300 },
+        { 3.95f, LV_SYMBOL_BATTERY_3,     0x0ab300 },
+        { 3.80f, LV_SYMBOL_BATTERY_2,     0xff9900 },
+        { 3.25f, LV_SYMBOL_BATTERY_1,     0xff0000 },
+        { 0.00f, LV_SYMBOL_BATTERY_EMPTY, 0xff0000 },
+    };
     battery_labels_t *labels = ( battery_labels_t * )pvParameters;
     lv_obj_t *battery_label = labels->battery_label;
     lv_obj_t *charge_label = labels->charge_label;
+    int shown_level = -1;
+    int shown_charging = -1;
 
     for( ; ; )
     {
@@ -189,6 +198,17 @@ void battery_task( void *pvParameters )
             continue;
         }
 
+        int level = 0;
+        while ( level < ( int )( sizeof( levels ) / sizeof( levels[ 0 ] ) ) - 1 &&
+                battery_voltage < levels[ level ].min_volts )
+            level++;
+        /* Unchanged state would only re-render the status bar every second. */
+        if ( level == shown_level && ( int )charging == shown_charging )
+        {
+            vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+            continue;
+        }
+
         /* Bounded wait with padding so a wedged render loop can't deadlock
          * this periodic task; skip the update if the mutex isn't free. */
         if ( !lvgl_port_lock( 1000 ) )
@@ -197,42 +217,21 @@ void battery_task( void *pvParameters )
             vTaskDelay( pdMS_TO_TICKS( 1000 ) );
             continue;
         }
-        if (battery_voltage >= 4.100)
-        {
-            lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_FULL);
-            lv_obj_set_style_text_color(battery_label, lv_color_hex(0x0ab300), 0);
-        } 
-        else if ( battery_voltage >= 3.95)
-        {
-            lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_3);
-            lv_obj_set_style_text_color(battery_label, lv_color_hex(0x0ab300), 0);
-        }
-        else if ( battery_voltage >= 3.80)
-        {
-            lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_2);
-            lv_obj_set_style_text_color(battery_label, lv_color_hex(0xff9900), 0);
-        }
-        else if ( battery_voltage >= 3.25)
-        {
-            lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_1);
-            lv_obj_set_style_text_color(battery_label, lv_color_hex(0xff0000), 0);
-        }
-        else
-        {
-            lv_label_set_text(battery_label, LV_SYMBOL_BATTERY_EMPTY);
-            lv_obj_set_style_text_color(battery_label, lv_color_hex(0xff0000), 0);
-        }
+        lv_label_set_text_static( battery_label, levels[ level ].symbol );
+        lv_obj_set_style_text_color( battery_label, lv_color_hex( levels[ level ].color ), 0 );
 
         if ( charging )
         {
-            lv_label_set_text( charge_label, LV_SYMBOL_CHARGE );
+            lv_label_set_text_static( charge_label, LV_SYMBOL_CHARGE );
             lv_obj_set_style_text_color( charge_label, lv_color_hex(0x0000cc), 0 );
         }
         else
         {
-            lv_label_set_text( charge_label, "" );
+            lv_label_set_text_static( charge_label, "" );
         }
         lvgl_port_unlock();
+        shown_level = level;
+        shown_charging = charging;
         vTaskDelay( pdMS_TO_TICKS( 1000 ) );
     }
 }

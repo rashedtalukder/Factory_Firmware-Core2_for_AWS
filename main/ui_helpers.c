@@ -41,7 +41,7 @@ lv_obj_t *ui_tabview_add_tab( lv_obj_t *tv, const char *name )
 lv_obj_t *ui_create_card( lv_obj_t *parent, lv_color_t bg_color )
 {
     lv_obj_t *card = lv_obj_create( parent );
-    lv_obj_remove_flag( card, LV_OBJ_FLAG_SCROLLABLE );
+    lv_obj_set_scrollable( card, false );
 
     /* Size: fill parent width with margin, fixed height */
     lv_obj_set_size( card, 290, 170 );
@@ -78,7 +78,7 @@ lv_obj_t *ui_card_text( lv_obj_t *card, const char *text, lv_color_t color )
 {
     lv_obj_t *label = lv_label_create( card );
     lv_label_set_text_static( label, text );
-    lv_label_set_long_mode( label, LV_LABEL_LONG_WRAP );
+    lv_label_set_long_mode( label, LV_LABEL_LONG_MODE_WRAP );
     lv_obj_set_style_text_color( label, color, 0 );
     lv_obj_set_width( label, lv_pct( 100 ) );
     return label;

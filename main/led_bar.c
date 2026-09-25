@@ -153,34 +153,31 @@ void display_LED_bar_tab(lv_obj_t *tv)
     }
 }
 
-static void red_event_handler( lv_event_t *e )
+static void set_channel( lv_event_t *e, uint8_t *channel )
 {
     lv_obj_t *slider = lv_event_get_target( e );
     if ( color_lock != NULL && xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) == pdTRUE )
     {
-        red = ( uint8_t )lv_slider_get_value( slider );
+        *channel = ( uint8_t )lv_slider_get_value( slider );
         xSemaphoreGive( color_lock );
     }
+    if ( led_bar_animation_handle )
+        xTaskNotifyGive( led_bar_animation_handle );
+}
+
+static void red_event_handler( lv_event_t *e )
+{
+    set_channel( e, &red );
 }
 
 static void green_event_handler( lv_event_t *e )
 {
-    lv_obj_t *slider = lv_event_get_target( e );
-    if ( color_lock != NULL && xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) == pdTRUE )
-    {
-        green = ( uint8_t )lv_slider_get_value( slider );
-        xSemaphoreGive( color_lock );
-    }
+    set_channel( e, &green );
 }
 
 static void blue_event_handler( lv_event_t *e )
 {
-    lv_obj_t *slider = lv_event_get_target( e );
-    if ( color_lock != NULL && xSemaphoreTake( color_lock, pdMS_TO_TICKS( 10 ) ) == pdTRUE )
-    {
-        blue = ( uint8_t )lv_slider_get_value( slider );
-        xSemaphoreGive( color_lock );
-    }
+    set_channel( e, &blue );
 }
 
 static void show_solid_until_inactive(void)
@@ -207,7 +204,9 @@ static void show_solid_until_inactive(void)
             }
             ESP_LOGD( TAG, "Color changed to #%.2x%.2x%.2x", current_red, current_green, current_blue );
         }
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        /* Slider changes and tab exits notify; the timeout only retries a
+         * failed snapshot or LED write. */
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
     };
 }
 

@@ -45,10 +45,15 @@ static lv_obj_t *minute_roller;
 static lv_obj_t *time_label;
 static lv_obj_t *set_confirm_label;
 static atomic_uint pending_time;
+static atomic_bool clock_active;
 
 void clock_on_right_press( void )
 {
-    lvgl_port_lock( 0 );
+    if ( !lvgl_port_lock( 1000 ) )
+    {
+        ESP_LOGW( TAG, "LVGL lock timeout; ignoring time set request" );
+        return;
+    }
     int hour = lv_roller_get_selected( hour_roller );
     int minute = lv_roller_get_selected( minute_roller );
     lvgl_port_unlock();
@@ -62,14 +67,12 @@ static void set_time_cb(lv_event_t *event)
     clock_on_right_press();
 }
 
-void update_roller_time()
+void clock_set_active( bool active )
 {
-    /* Called from the LVGL thread on tab activation. Instead of doing a
-     * blocking I2C RTC read here (which stalls rendering mid tab-transition
-     * and races with clock_task's periodic read), just wake clock_task and
-     * let it resync the rollers on its own thread. This keeps all RTC access
-     * on a single task. */
-    if ( clock_handle )
+    /* Keeps all RTC access on clock_task; the notification makes it resync
+     * the rollers when the tab opens. */
+    atomic_store( &clock_active, active );
+    if ( active && clock_handle )
         xTaskNotifyGive( clock_handle );
 }
 
@@ -157,10 +160,13 @@ void display_clock_tab( lv_obj_t *tv )
 void clock_task( void *pvParameters )
 {    for( ; ; )
     {
-        /* Wake once per second to refresh the live time, or immediately when
-         * the clock tab is (re)opened (update_roller_time() notifies us). */
-        uint32_t refresh_rollers = ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS( 1000 ) );
+        /* Refresh once per second while the tab is visible; otherwise sleep
+         * until the tab opens so the shared I2C bus stays free. */
+        uint32_t refresh_rollers = ulTaskNotifyTake( pdTRUE,
+            atomic_load( &clock_active ) ? pdMS_TO_TICKS( 1000 ) : portMAX_DELAY );
         unsigned int requested = atomic_exchange(&pending_time, 0);
+        if ( !atomic_load( &clock_active ) && requested == 0 )
+            continue;
 
         struct tm current_time;
         esp_err_t err = core2foraws_rtc_time_get( &current_time );

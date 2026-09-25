@@ -36,7 +36,7 @@ git submodule update --init --recursive
 
 ## Build
 
-The project targets PlatformIO `espressif32` `7.1.2`, which bundles ESP-IDF `6.1.0` and the GCC 15.2 toolchain. Build the firmware with:
+The project targets PlatformIO `espressif32` `7.1.3`, which bundles ESP-IDF `6.1.0` and the GCC 15.2 toolchain. Build the firmware with:
 
 ```shell
 pio run -e core2foraws

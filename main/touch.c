@@ -171,7 +171,7 @@ void touch_on_right_press( void )
 
     ESP_LOGI( TAG, "Right button was tapped" );
 
-    lvgl_port_lock( 0 );
+    if ( !lvgl_port_lock( 1000 ) ) return;
     if (atomic_load(&touch_tab_active)) {
         b += 0x10;
         update_touch_card( "Right button", TOUCH_RIGHT_COLOR );
@@ -187,7 +187,7 @@ static void touch_button_callback( enum core2foraws_button_btns button, press_ev
     {
         ESP_LOGI( TAG, "Left button was tapped" );
 
-        lvgl_port_lock( 0 );
+        if ( !lvgl_port_lock( 1000 ) ) return;
         if (atomic_load(&touch_tab_active)) {
             r += 0x10;
             update_touch_card( "Left button", TOUCH_LEFT_COLOR );
@@ -198,7 +198,7 @@ static void touch_button_callback( enum core2foraws_button_btns button, press_ev
     {
         ESP_LOGI( TAG, "Middle button was tapped" );
 
-        lvgl_port_lock( 0 );
+        if ( !lvgl_port_lock( 1000 ) ) return;
         if (atomic_load(&touch_tab_active)) {
             g += 0x10;
             update_touch_card( "Middle button", TOUCH_MIDDLE_COLOR );
