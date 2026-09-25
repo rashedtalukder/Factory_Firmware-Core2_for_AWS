@@ -64,21 +64,19 @@ typedef int esp_err_t;
 typedef void *QueueHandle_t;
 #define ESP_OK 0
 #define FFT_SIZE 4
-#define FFT_REAL 0
-#define FFT_FORWARD 0
 #define CANVAS_HEIGHT 2
 #define pdTRUE 1
 #define pdMS_TO_TICKS(value) (value)
 #define ESP_LOGW(...) ((void)0)
 typedef struct {uint8_t spectrum[CANVAS_HEIGHT];} mic_frame_t;
-typedef struct {unsigned int size; float input[4]; float output[8];} fft_config_t;
-static fft_config_t plan = {.size = 4};
 static atomic_bool microphone_active = true;
 static unsigned int disables, destroyed;
 static jmp_buf finished;
-static fft_config_t *fft_init(int size, int type, int direction, void *input, void *output) {return &plan;}
-static void fft_destroy(fft_config_t *config) {destroyed++;}
-static void fft_execute(fft_config_t *config) {assert(false);}
+static esp_err_t dsps_fft2r_init_fc32(float *table, int size) {return ESP_OK;}
+static void dsps_fft2r_deinit_fc32(void) {destroyed++;}
+static esp_err_t dsps_fft2r_fc32(float *data, int size) {assert(false); return ESP_OK;}
+static esp_err_t dsps_bit_rev_fc32(float *data, int size) {assert(false); return ESP_OK;}
+static esp_err_t dsps_wind_hann_f32(float *window, int size) {return ESP_OK;}
 static esp_err_t core2foraws_audio_mic_enable(bool enable) {
     if (enable) {atomic_store(&microphone_active, false); return 9;}
     return ++disables == 1 ? 9 : ESP_OK;

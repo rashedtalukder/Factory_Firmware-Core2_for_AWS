@@ -40,7 +40,8 @@ except ImportError:
     sys.exit("pyserial is required: pip install -r requirements.txt")
 
 PREFIX = "UITEST"
-DEFAULT_BAUD = 115200
+# Matches CONFIG_ESP_CONSOLE_UART_BAUDRATE in the factory firmware.
+DEFAULT_BAUD = 921600
 DEFAULT_REPLY_TIMEOUT = 10.0
 SHOT_TIMEOUT = 120.0
 MAX_COMMAND_BYTES = 159
@@ -203,8 +204,8 @@ class UITestClient:
         line = " ".join([fields[0].upper()] + fields[1:])
         if line == "DUMP":
             return self.dump()
-        if line == "SHOT":
-            return self.shot()
+        if fields[0].upper() == "SHOT":
+            return self.shot(mode=fields[1:])
         return self._check_reply(line, self._transaction(line, timeout))
 
     # ── high-level helpers ────────────────────────────────────────
@@ -227,7 +228,8 @@ class UITestClient:
         replies = self.command(f"GET {obj_id}", timeout=timeout)
         pattern = re.compile(
             rf"^{re.escape(self.prefix)}: OK GET {re.escape(obj_id)} "
-            r"VISIBLE:([01]) ENABLED:([01]) CHECKED:([01]) VALUE:(-?\d+) TEXT:([0-9a-f]+|-)$")
+            r"VISIBLE:([01]) ENABLED:([01]) CHECKED:([01]) VALUE:(-?\d+) "
+            r"TEXT:([0-9a-f]+|-) TRUNCATED:([01])$")
         matches = [pattern.fullmatch(reply) for reply in replies]
         match = next((match for match in matches if match is not None), None)
         if match is None:
@@ -237,7 +239,8 @@ class UITestClient:
         except (ValueError, UnicodeError) as exc:
             raise RuntimeError("invalid GET text encoding") from exc
         return dict(id=obj_id, visible=match[1] == "1", enabled=match[2] == "1",
-                    checked=match[3] == "1", value=int(match[4]), text=text)
+                    checked=match[3] == "1", value=int(match[4]), text=text,
+                    truncated=match[6] == "1")
 
     def wait_for(self, obj_id, field, expected, timeout=None):
         if field not in ("visible", "enabled", "checked", "value", "text"):
@@ -276,9 +279,9 @@ class UITestClient:
             return observed
         if verb == "GET" and len(fields) == 2:
             return self.get(fields[1])
-        if verb == "SHOT" and len(fields) == 1:
+        if verb == "SHOT":
             output = Path(artifact_dir or ".") / f"{name}.png"
-            self.shot(output)
+            self.shot(output, fields[1:])
             return {"image": str(output)}
         if verb == "COMPARE" and len(fields) == 2:
             output = Path(artifact_dir or ".") / f"{name}.png"
@@ -320,10 +323,29 @@ class UITestClient:
             raise RuntimeError(f"script failed; see {directory / 'report.json'}")
         return report
 
-    def shot(self, output=None):
+    @staticmethod
+    def _shot_command(mode):
+        fields = list(mode or [])
+        if not fields:
+            return "SHOT"
+        keyword = fields[0].upper()
+        if keyword in ("KEY", "DELTA") and len(fields) == 1:
+            return f"SHOT {keyword}"
+        if keyword == "AREA" and len(fields) == 5:
+            try:
+                values = [int(value) for value in fields[1:]]
+            except ValueError:
+                pass
+            else:
+                return "SHOT AREA " + " ".join(str(value) for value in values)
+        raise ValueError("SHOT [KEY|DELTA|AREA <x> <y> <w> <h>]")
+
+    def shot(self, output=None, mode=None):
+        """Capture a frame; mode is None, ["KEY"], ["DELTA"], or ["AREA", x, y, w, h]."""
+        line = self._shot_command(mode)
         screenshot = screenshot_module()
         deadline = time.monotonic() + SHOT_TIMEOUT
-        self._begin("SHOT", SHOT_TIMEOUT)
+        self._begin(line, SHOT_TIMEOUT)
         marker = getattr(self, "screenshot_marker", "SCREENSHOT")
         metadata, payload = screenshot.capture(
             CaptureStream(self), f"---{marker}_START---", f"---{marker}_END---",
@@ -331,8 +353,12 @@ class UITestClient:
             error_prefix=f"{self.prefix}: ERR SHOT")
         if metadata is None:
             raise RuntimeError("SHOT frame missing")
-        image = screenshot.FrameDecoder().apply(metadata, payload)
-        self._check_reply("SHOT", self._finish(max(0, deadline - time.monotonic())))
+        # DELTA frames patch the canvas kept from earlier KEY/FULL frames.
+        decoder = getattr(self, "_frame_decoder", None)
+        if decoder is None:
+            decoder = self._frame_decoder = screenshot.FrameDecoder()
+        image = decoder.apply(metadata, payload)
+        self._check_reply(line, self._finish(max(0, deadline - time.monotonic())))
         if output is not None:
             image.save(output)
             screenshot.write_sidecar(Path(output), metadata)
@@ -427,6 +453,8 @@ def main():
 
     shot_parser = sub.add_parser("shot")
     shot_parser.add_argument("--output", default="screenshot.png")
+    shot_parser.add_argument("--area", nargs=4, type=int, metavar=("X", "Y", "W", "H"),
+                             help="Capture only this rectangle")
     get_parser = sub.add_parser("get")
     get_parser.add_argument("id")
     sub.add_parser("cancel")
@@ -466,7 +494,8 @@ def main():
             client.click(args.id)
             print("ok")
         elif args.cmd == "shot":
-            client.shot(args.output)
+            mode = ["AREA", *map(str, args.area)] if args.area else None
+            client.shot(args.output, mode)
             print("ok")
         elif args.cmd == "get":
             print(json.dumps(client.get(args.id)))

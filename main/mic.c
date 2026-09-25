@@ -7,7 +7,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdint.h>
-#include <limits.h>
 #include <stdatomic.h>
 
 #include "freertos/FreeRTOS.h"
@@ -20,7 +19,7 @@
 
 #include "ui_helpers.h"
 #include "mic.h"
-#include "fft.h"
+#include "esp_dsp.h"
 
 TaskHandle_t mic_handle, FFT_handle;
 static atomic_bool microphone_active;
@@ -133,9 +132,16 @@ void microphoneTask(void *pvParameters)
     bool owns_microphone = false;
     bool cleanup_pending = false;
 
-    fft_config_t *fft_plan = NULL;
+    bool fft_ready = false;
 
     mic_frame_t frame;
+
+    /* Interleaved re/im pairs for the complex FFT. */
+    static float fft_data[FFT_SIZE * 2] __attribute__((aligned(16)));
+    static float window[FFT_SIZE] __attribute__((aligned(16)));
+    dsps_wind_hann_f32(window, FFT_SIZE);
+    /* x2 offsets the Hann window's 0.5 coherent gain. */
+    const float scale = 2.0f * 1000.0f / 32768.0f;
 
     for(;;)
     {
@@ -159,20 +165,20 @@ void microphoneTask(void *pvParameters)
                 owns_microphone = false;
                 microphone_status_set("Idle");
             }
-            if (fft_plan != NULL) {
-                fft_destroy(fft_plan);
-                fft_plan = NULL;
+            if (fft_ready) {
+                dsps_fft2r_deinit_fc32();
+                fft_ready = false;
             }
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
             continue;
         }
-        if (fft_plan == NULL) {
-            fft_plan = fft_init(FFT_SIZE,FFT_REAL,FFT_FORWARD,NULL,NULL);
-            if (fft_plan == NULL) {
+        if (!fft_ready) {
+            if (dsps_fft2r_init_fc32(NULL, FFT_SIZE) != ESP_OK) {
                 ESP_LOGW(TAG, "FFT allocation failed; retrying");
                 vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
+            fft_ready = true;
         }
         if (!owns_microphone) {
             err = core2foraws_audio_mic_enable(true);
@@ -199,24 +205,19 @@ void microphoneTask(void *pvParameters)
             continue;
         }
 
-        for(uint16_t i=0;i<fft_plan->size;i++)
+        for(uint16_t i=0;i<FFT_SIZE;i++)
         {
-            fft_plan->input[i] =
-                (float)map_long(
-                    mic_samples[i],
-                    INT16_MIN,
-                    INT16_MAX,
-                    -1000,
-                    1000
-                );
+            fft_data[2*i] = (float)mic_samples[i] * scale * window[i];
+            fft_data[2*i+1] = 0.0f;
         }
 
-        fft_execute(fft_plan);
+        dsps_fft2r_fc32(fft_data, FFT_SIZE);
+        dsps_bit_rev_fc32(fft_data, FFT_SIZE);
 
         for(uint16_t bin=1;bin<CANVAS_HEIGHT;bin++)
         {
-            float real=fft_plan->output[2*bin];
-            float imag=fft_plan->output[2*bin+1];
+            float real=fft_data[2*bin];
+            float imag=fft_data[2*bin+1];
 
             float mag=sqrtf(real*real + imag*imag);
 

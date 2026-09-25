@@ -36,6 +36,15 @@ extern "C" {
  */
 esp_err_t uitest_init(void);
 
+/**
+ * @brief Stop the listener and remove the synthetic input device.
+ *
+ * Waits for an in-progress command to finish (bounded by the drain timeout).
+ * Returns ESP_ERR_TIMEOUT if the listener is still busy; retry later. Must not
+ * be called from a command handler. uitest_init() may be called again after.
+ */
+esp_err_t uitest_deinit(void);
+
 /** Cancel queued gestures and reset the pointer on its next LVGL read. */
 esp_err_t uitest_cancel(void);
 

@@ -46,6 +46,7 @@ In `menuconfig` → *Core2 for AWS UI Test Harness*:
 | `UITEST_DRAIN_TIMEOUT_MS` | `8000` | Maximum wait for LVGL to consume a gesture |
 | `UITEST_SETTLE_MS` | `100` | Delay after release before replying `OK` |
 | `UITEST_LVGL_LOCK_TIMEOUT_MS` | `1000` | Maximum LVGL mutex wait |
+| `UITEST_SHOT_TIMEOUT_MS` | `60000` | Maximum wait for the screenshot worker before `ERR SHOT ESP_ERR_TIMEOUT` |
 | `UITEST_MAX_REGISTERED` | `32` | Size of the id → object table |
 | `UITEST_MAX_ID_LENGTH` | `64` | Copied widget ID size including terminator |
 | `UITEST_MAX_DUMP_NODES` | `256` | Maximum nodes captured by DUMP |
@@ -53,11 +54,15 @@ In `menuconfig` → *Core2 for AWS UI Test Harness*:
 | `UITEST_TASK_STACK_SIZE` | `8192` | Listener task stack |
 
 > **Do not** also enable `CONFIG_SCREENSHOT_SERIAL_TRIGGER`. Both components read
-> stdin; the UI test harness already provides a `SHOT` command that calls the
-> screenshot worker and waits for completion before accepting the next command.
+> stdin; the UI test harness already provides a `SHOT` command (including
+> `KEY`, `DELTA`, and `AREA` variants) that calls the screenshot component and
+> waits for completion before accepting the next command.
 
 `uitest_init()` is invoked from `app_main()` after the UI starts (guarded by
-`CONFIG_UITEST_ENABLED`).
+`CONFIG_UITEST_ENABLED`). `uitest_deinit()` stops the listener and removes the
+synthetic input device; it waits for an in-progress command (bounded by the
+drain timeout) and returns `ESP_ERR_TIMEOUT` if it must be retried. The
+listener blocks in `select()` on stdin rather than polling.
 
 ## Command protocol
 
@@ -80,8 +85,11 @@ serial port and serialize calls to that client.
 | `SWIPE <x0> <y0> <x1> <y1> <ms>` | `UITEST: OK SWIPE ...` | Interpolated pressed drag over `ms` |
 | `CLICK <id>` | `UITEST: OK CLICK <id>` | Tap the center of a registered widget |
 | `DUMP` | `NODE` lines between `---UITEST_DUMP_START/END---` | Serialize the active screen widget tree |
-| `SHOT` | Screenshot stream + `UITEST: OK SHOT` | Wait for capture worker completion (needs screenshot + async enabled) |
-| `GET <id>` | `OK GET <id> VISIBLE:1 ENABLED:1 CHECKED:0 VALUE:0 TEXT:<hex>` | Query visible/enabled/checked state, slider/roller value or label/textarea text |
+| `SHOT` | Screenshot stream + `UITEST: OK SHOT` | Full-screen capture; waits for completion |
+| `SHOT KEY` | Screenshot stream + `UITEST: OK SHOT KEY` | Reset the delta baseline and send a full keyframe |
+| `SHOT DELTA` | Screenshot stream + `UITEST: OK SHOT DELTA` | Send only the region changed since the last KEY/DELTA frame |
+| `SHOT AREA <x> <y> <w> <h>` | Screenshot stream + `UITEST: OK SHOT AREA ...` | Capture a rectangle of the active screen |
+| `GET <id>` | `OK GET <id> VISIBLE:1 ENABLED:1 CHECKED:0 VALUE:0 TEXT:<hex> TRUNCATED:0` | Query visible/enabled/checked state, numeric value, or text |
 | `CANCEL` | `UITEST: OK CANCEL` | Discard queued samples and wait for pointer reset |
 
 `TAP`/`LONGPRESS`/`SWIPE`/`CLICK` reserve their complete sample sequence before
@@ -100,9 +108,16 @@ the reset and the settle delay expires. Public C injection functions return
 after queueing, unlike serial commands, which wait for drain. Concurrent C
 callers must coordinate logical test transactions with the serial client.
 
+SHOT uses the asynchronous screenshot worker when `SCREENSHOT_ASYNC` is enabled
+and gives up after `UITEST_SHOT_TIMEOUT_MS`, canceling queued captures;
+otherwise it captures synchronously on the listener task. DELTA frames are only
+valid against the host's canvas from a preceding `SHOT KEY`/`SHOT DELTA`.
+
 GET returns text as UTF-8 bytes encoded in hexadecimal (`-` for empty text).
-Text longer than 127 bytes returns an explicit error rather than truncating an
-assertion value. Numeric VALUE applies to sliders and rollers, otherwise zero.
+Text longer than 127 bytes is cut on a UTF-8 boundary and reported with
+`TRUNCATED:1`. Text applies to labels, textareas, and checkboxes. Numeric VALUE
+applies to sliders, bars, arcs (value), and rollers/dropdowns (selected index),
+otherwise zero.
 
 ### `DUMP` output
 
@@ -161,7 +176,11 @@ python tools/uitest_runner.py --port $PORT script smoke.txt
 python tools/uitest_runner.py --port $PORT script smoke.txt --continue-on-error
 python tools/uitest_runner.py --port $PORT get page.title
 python tools/uitest_runner.py --port $PORT shot --output capture.png
+python tools/uitest_runner.py --port $PORT shot --area 0 0 160 120 --output corner.png
 ```
+
+The runner defaults to 921600 baud to match the factory console; pass `--baud`
+if your firmware's `CONFIG_ESP_CONSOLE_UART_BAUDRATE` differs.
 
 The runner opens the port with DTR/RTS deasserted, then actively requests INFO
 until a correlated reply proves readiness (10-second startup budget). This also
@@ -173,7 +192,8 @@ non-default marker. Keep both components' tools directories available.
 
 Scripts dispatch DUMP and SHOT through their specialized parsers. They also
 accept `ASSERT <id> <field> <expected>`, `WAIT <id> <field> <expected>`,
-`GET <id>`, and `COMPARE <reference.png>`. Fields are `visible`, `enabled`,
+`GET <id>`, `COMPARE <reference.png>`, and `SHOT [KEY|DELTA|AREA x y w h]`.
+Fields are `visible`, `enabled`,
 `checked`, `value`, or `text`; quote text containing spaces. WAIT polls within
 `--timeout`. COMPARE performs an exact image comparison and writes a diff on
 mismatch. Scripts save per-step results/timings in `report.json`, screenshots

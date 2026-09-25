@@ -1,3 +1,4 @@
+import base64
 import unittest
 import zlib
 import tempfile
@@ -66,7 +67,7 @@ class ClientTests(unittest.TestCase):
 
     def test_get_and_assert_text(self):
         client = make_client(ScriptedSerial({"GET title":
-            "UITEST: OK GET title VISIBLE:1 ENABLED:1 CHECKED:0 VALUE:0 TEXT:486f6d65\n"}))
+            "UITEST: OK GET title VISIBLE:1 ENABLED:1 CHECKED:0 VALUE:0 TEXT:486f6d65 TRUNCATED:0\n"}))
         self.assertEqual(client.execute('ASSERT title text "Home"')["text"], "Home")
         with self.assertRaises(AssertionError):
             client.execute('ASSERT title text "Clock"')
@@ -221,6 +222,38 @@ class ClientTests(unittest.TestCase):
             "---SCREENSHOT_END---\nUITEST: OK SHOT\n")})
         with self.assertRaisesRegex(ValueError, "CRC32"):
             make_client(serial).shot()
+
+    def test_shot_area_and_delta_share_canvas(self):
+        def frame(kind, x, width, pixel, base_crc, crc):
+            return (
+                f"---SCREENSHOT_START---\nPROTO:2\nSEQ:1\nFRAME:{kind}\nX:{x}\nY:0\n"
+                f"CANVAS_W:2\nCANVAS_H:1\nBASE_CRC32:{base_crc:08x}\nW:{width}\nH:1\n"
+                f"STRIDE:{width * 3}\nFMT:RGB888\nENC:BASE64\nTRANSPORT:BASE64\n"
+                f"CRC32:{crc:08x}\n{base64.b64encode(pixel).decode()}\n---SCREENSHOT_END---\n")
+        key = bytes([1, 2, 3, 4, 5, 6])
+        patch = bytes([9, 9, 9])
+        serial = ScriptedSerial({
+            "SHOT KEY": frame("KEY", 0, 2, key, 0, zlib.crc32(key)) + "UITEST: OK SHOT KEY\n",
+            "SHOT DELTA": frame("DELTA", 1, 1, patch, zlib.crc32(key), zlib.crc32(patch))
+                + "UITEST: OK SHOT DELTA\n",
+            "SHOT AREA 1 0 1 1": frame("REGION", 1, 1, patch, 0, zlib.crc32(patch))
+                + "UITEST: OK SHOT AREA 1 0 1 1\n",
+        })
+        client = make_client(serial)
+        client.command("SHOT KEY")
+        image = client.shot(mode=["delta"])
+        self.assertEqual(image.tobytes("raw", "BGR"), key[:3] + patch)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(client.execute("SHOT AREA 1 0 1 1", directory).keys(), {"image"})
+        with self.assertRaises(ValueError):
+            client.shot(mode=["AREA", "1"])
+
+    def test_get_reports_truncated_text(self):
+        client = make_client(ScriptedSerial({"GET title":
+            "UITEST: OK GET title VISIBLE:1 ENABLED:1 CHECKED:0 VALUE:3 TEXT:486f TRUNCATED:1\n"}))
+        result = client.get("title")
+        self.assertTrue(result["truncated"])
+        self.assertEqual((result["text"], result["value"]), ("Ho", 3))
 
 
 if __name__ == "__main__":

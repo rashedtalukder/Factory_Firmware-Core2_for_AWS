@@ -83,6 +83,16 @@ menu "Core2 for AWS UI Test Harness"
         range 100 10000
         depends on UITEST_ENABLED
 
+    config UITEST_SHOT_TIMEOUT_MS
+        int "SHOT completion timeout (ms)"
+        default 60000
+        range 1000 600000
+        depends on UITEST_ENABLED && SCREENSHOT_ASYNC
+        help
+            Maximum time SHOT waits for the screenshot worker before replying
+            ERR SHOT ESP_ERR_TIMEOUT and canceling queued captures. Keep it
+            below the host runner's SHOT timeout (120 s).
+
     config UITEST_MAX_REGISTERED
         int "Max registered widget IDs"
         default 32

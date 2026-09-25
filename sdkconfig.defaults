@@ -24,6 +24,17 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 
 #
+# Console
+#
+# 921600 cuts screenshot transfers ~8x; keep monitor_speed and host tools in sync.
+# The baud prompt only exists for a custom console, so select UART0 on its default pins.
+CONFIG_ESP_CONSOLE_UART_CUSTOM=y
+CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0=y
+CONFIG_ESP_CONSOLE_UART_TX_GPIO=1
+CONFIG_ESP_CONSOLE_UART_RX_GPIO=3
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=921600
+
+#
 # Compiler options
 #
 # -O2: LVGL software rendering is CPU bound; -Og (the IDF default) is much slower
