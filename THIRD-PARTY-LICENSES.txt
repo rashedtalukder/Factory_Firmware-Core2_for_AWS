@@ -28,8 +28,11 @@ FEES, IF ANY, THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
 
 ------
 
-** Core 2 for AWS IoT Kit BSP; version 2 --
-https://github.com/m5stack/Core2-for-AWS-IoT-Kit/tree/BSP-dev
+** Historical third-party notices carried by the Core2 for AWS IoT Kit BSP --
+https://github.com/rashedtalukder/Core2-for-AWS-IoT-Kit/tree/BSP-dev
+The current BSP is licensed under Apache-2.0; see its LICENSE and NOTICE.
+The following upstream MIT terms are retained for attribution and do not
+describe the current BSP's primary license.
 
 Copyright (c) 2021 LVGL LLC (https://github.com/lvgl/)
 Copyright (c) 2021 Rop Gonggrijp (https://github.com/ropg)

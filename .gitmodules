@@ -3,4 +3,7 @@
 	url = https://github.com/rashedtalukder/Core2-for-AWS-IoT-Kit.git
 [submodule "components/core2foraws-screenshot"]
 	path = components/core2foraws-screenshot
-	url = git@github.com:rashedtalukder/core2foraws-screenshot.git
+	url = https://github.com/rashedtalukder/core2foraws-screenshot.git
+[submodule "components/core2foraws-uitest"]
+	path = components/core2foraws-uitest
+	url = https://github.com/rashedtalukder/core2foraws-uitest.git
