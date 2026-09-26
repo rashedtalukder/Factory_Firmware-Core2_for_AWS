@@ -64,6 +64,7 @@ void display_home_tab( lv_obj_t *tv )
     lv_label_set_text_static( body_label, "Swipe through to learn about some of the hardware features." );
     lv_obj_set_width( body_label, lv_pct( 85 ) );
     lv_obj_set_style_text_align( body_label, LV_TEXT_ALIGN_CENTER, 0 );
+    lv_obj_set_style_translate_y( body_label, -12, 0 );
     
     /* Animated swipe hint — scrolls left continuously */
     lv_obj_t *arrow_label = lv_label_create( home_tab );
