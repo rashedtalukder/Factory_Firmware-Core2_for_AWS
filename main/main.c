@@ -1,6 +1,6 @@
 /*
  * AWS IoT Kit - M5Stack Core2
- * Factory Firmware v2.3.0
+ * Factory Firmware v2.4.0
  * main.c
  * 
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
@@ -117,6 +117,10 @@ static battery_labels_t bat_labels;
 
 #define NUM_TABS 10
 
+#define HEADER_RIGHT_MARGIN   8
+#define HEADER_BATTERY_WIDTH  22
+#define HEADER_ICON_GAP       6
+
 TaskHandle_t    clock_handle,
                 led_bar_animation_handle, 
                 led_bar_solid_handle;
@@ -230,8 +234,8 @@ static void ui_start( void )
     /* Battery — fixed container pinned right, glyphs centered inside */
     lv_obj_t *battery_container = lv_obj_create( top_bar );
     lv_obj_remove_style_all( battery_container );
-    lv_obj_set_size( battery_container, 22, 18 );
-    lv_obj_align( battery_container, LV_ALIGN_RIGHT_MID, -8, 0 );
+    lv_obj_set_size( battery_container, HEADER_BATTERY_WIDTH, 18 );
+    lv_obj_align( battery_container, LV_ALIGN_RIGHT_MID, -HEADER_RIGHT_MARGIN, 0 );
 
     bat_labels.battery_label = lv_label_create( battery_container );
     lv_label_set_text( bat_labels.battery_label, LV_SYMBOL_BATTERY_FULL );
@@ -243,6 +247,11 @@ static void ui_start( void )
     bat_labels.charge_label = lv_label_create( battery_container );
     lv_label_set_text( bat_labels.charge_label, "" );
     lv_obj_center( bat_labels.charge_label );
+
+    lv_obj_t *wifi_icon = wifi_status_icon_create( top_bar );
+    ui_test_id( wifi_icon, "header.wifi" );
+    lv_obj_align( wifi_icon, LV_ALIGN_RIGHT_MID,
+                  -( HEADER_RIGHT_MARGIN + HEADER_BATTERY_WIDTH + HEADER_ICON_GAP ), 0 );
 
     /* ── Tabview: grows to fill remaining space ───────────────────────── */
     tab_view = lv_tabview_create( core2forAWS_obj );

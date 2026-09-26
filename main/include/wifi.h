@@ -1,6 +1,6 @@
 /*
  * AWS IoT Kit - M5Stack Core2
- * Factory Firmware v2.3.0
+ * Factory Firmware v2.4.0
  * wifi.h
  * 
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
@@ -31,3 +31,5 @@ extern TaskHandle_t wifi_handle;
 
 void display_wifi_tab( lv_obj_t *tv );
 void wifi_set_active(bool active);
+/* Header connection icon; call with the LVGL port lock held. */
+lv_obj_t *wifi_status_icon_create( lv_obj_t *parent );

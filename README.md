@@ -1,6 +1,6 @@
 # M5Stack Core2 for AWS IoT Kit Factory Firmware
 
-Factory firmware for the M5Stack Core2 for AWS IoT Kit. Use this repository to restore your device to the original program or to investigate and freely modify.This application was written to be easy to understand and replicate instead of efficiency. View the [API reference](https://aws-iot-kit-docs.m5stack.com) for using the included board support package.
+Factory firmware for the M5Stack Core2 for AWS IoT Kit. Use this repository to restore your device to the original program or to investigate and freely modify.This application was written to be easy to understand and replicate instead of efficiency. View the [API reference](https://aws-iot-kit-docs.m5stack.com/en/api-reference/) for using the included board support package.
 
 ## Cloning
 

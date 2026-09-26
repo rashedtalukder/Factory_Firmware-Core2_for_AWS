@@ -8,4 +8,4 @@ if( NOT CONFIG_SOFTWARE_CRYPTO_SUPPORT )
 set( EXCLUDE_COMPONENTS esp-cryptoauthlib )
 endif()
 
-project( Factory_Firmware-Core2_for_AWS VERSION 2.3.0 )
+project( Factory_Firmware-Core2_for_AWS VERSION 2.4.0 )

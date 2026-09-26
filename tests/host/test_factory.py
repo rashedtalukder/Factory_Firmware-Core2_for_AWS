@@ -102,53 +102,44 @@ int main(void) {
                            input=program.encode(), check=True, capture_output=True)
             subprocess.run([executable], check=True, capture_output=True)
 
-    def test_bsp_scan_ownership_and_retry(self):
-        source = (Path(__file__).resolve().parents[2] /
-                  "components/Core2-for-AWS-IoT-Kit/lib/wifi/core2foraws_wifi.c").read_text()
-        scan = source[source.index("esp_err_t core2foraws_wifi_scan("):source.index("static esp_err_t _core2foraws_wifi_deinit_locked( void )\n{")]
+    def test_wifi_list_keeps_strongest_record_per_ssid(self):
+        source = (Path(__file__).resolve().parents[2] / "main/wifi.c").read_text()
+        unique = source[source.index("static bool wifi_record_before("):source.index("static void add_ap_item(")]
         program = r"""
 #include <assert.h>
-#include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdatomic.h>
-typedef int esp_err_t;
-typedef int wifi_ap_record_t;
-#define ESP_OK 0
-#define ESP_ERR_INVALID_ARG 1
-#define ESP_ERR_INVALID_STATE 2
-#define WIFI_MODE_STA 1
-static bool _wifi_initialized, held;
-static atomic_bool _wifi_started, _scan_only, _provisioning_active;
-static unsigned int starts, clears;
-static esp_err_t scan_error, mode_error;
-static esp_err_t _wifi_lifecycle_lock(void) {assert(!held); held = true; return ESP_OK;}
-static void _wifi_lifecycle_unlock(void) {assert(held); held = false;}
-static esp_err_t esp_wifi_set_mode(int mode) {assert(held && mode == WIFI_MODE_STA); return mode_error;}
-static esp_err_t esp_wifi_start(void) {assert(held && atomic_load(&_scan_only)); starts++; return ESP_OK;}
-static esp_err_t esp_wifi_scan_start(void *config, bool block) {assert(held && block); return scan_error;}
-static esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count, wifi_ap_record_t *records) {assert(held); *count = 1; records[0] = 42; return ESP_OK;}
-static void esp_wifi_clear_ap_list(void) {assert(held); clears++;}
-""" + scan + r"""
+#include <stdint.h>
+#include <string.h>
+#define WIFI_RSSI_BAND_DB 6
+typedef struct { uint8_t ssid[33]; int8_t rssi; } wifi_ap_record_t;
+""" + unique + r"""
+static wifi_ap_record_t ap(const char *ssid, int8_t rssi) {
+    wifi_ap_record_t record = {{0}, rssi}; strcpy((char *)record.ssid, ssid); return record;
+}
 int main(void) {
-    wifi_ap_record_t records[2]; uint16_t count = 2;
-    assert(core2foraws_wifi_scan(NULL, &count) == ESP_ERR_INVALID_ARG);
-    assert(core2foraws_wifi_scan(records, &count) == ESP_ERR_INVALID_STATE && !held);
-    _wifi_initialized = true; mode_error = 7;
-    assert(core2foraws_wifi_scan(records, &count) == 7 && starts == 0 && !held);
-    mode_error = 0;
-    assert(core2foraws_wifi_scan(records, &count) == ESP_OK && starts == 1 && records[0] == 42);
-    assert(core2foraws_wifi_scan(records, &count) == ESP_OK && starts == 1);
-    scan_error = 9;
-    assert(core2foraws_wifi_scan(records, &count) == 9 && clears == 1 && !held);
-    atomic_store(&_provisioning_active, true);
-    assert(core2foraws_wifi_scan(records, &count) == ESP_ERR_INVALID_STATE && !held);
+    wifi_ap_record_t records[] = {
+        ap("cafe", -80), ap("home", -70), ap("", -20), ap("cafe", -40),
+        ap("home", -75), ap("lab", -60), ap("cafe", -90), ap("", -30),
+    };
+    uint16_t count = wifi_unique_networks(records, 8);
+    assert(count == 3);
+    assert(strcmp((char *)records[0].ssid, "cafe") == 0 && records[0].rssi == -40);
+    assert(strcmp((char *)records[1].ssid, "lab") == 0 && records[1].rssi == -60);
+    assert(strcmp((char *)records[2].ssid, "home") == 0 && records[2].rssi == -70);
+    assert(wifi_unique_networks(records, 0) == 0);
+    wifi_ap_record_t hidden[] = { ap("", -10) };
+    assert(wifi_unique_networks(hidden, 1) == 0);
+    wifi_ap_record_t close[] = { ap("zeta", -33), ap("alpha", -34), ap("mid", -50) };
+    assert(wifi_unique_networks(close, 3) == 3);
+    assert(strcmp((char *)close[0].ssid, "alpha") == 0 && strcmp((char *)close[1].ssid, "zeta") == 0);
+    assert(strcmp((char *)close[2].ssid, "mid") == 0);
     return 0;
 }
 """
         with tempfile.TemporaryDirectory() as directory:
             executable = str(Path(directory) / "wifi")
-            subprocess.run(["cc", "-x", "c", "-std=c11", "-fsanitize=address,undefined", "-o", executable, "-"],
+            subprocess.run(["cc", "-x", "c", "-std=c11", "-Wall", "-Werror", "-fsanitize=address,undefined",
+                            "-o", executable, "-"],
                            input=program.encode(), check=True, capture_output=True)
             subprocess.run([executable], check=True, capture_output=True)
 
