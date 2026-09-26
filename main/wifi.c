@@ -88,11 +88,19 @@ void wifi_set_active( bool active )
 
 /* ── Header status icon ─────────────────────────────────────────────── */
 
+static core2foraws_wifi_state_t link_state( void )
+{
+    core2foraws_wifi_state_t state;
+    /* Cannot fail with a valid pointer */
+    ( void )core2foraws_wifi_state_get( &state );
+    return state;
+}
+
 static void wifi_icon_timer_cb( lv_timer_t *timer )
 {
     static bool blink_blue;
     lv_obj_t *icon = lv_timer_get_user_data( timer );
-    core2foraws_wifi_state_t state = core2foraws_wifi_state_get();
+    core2foraws_wifi_state_t state = link_state();
 
     bool blue = state == CORE2FORAWS_WIFI_STATE_CONNECTED;
     if ( state == CORE2FORAWS_WIFI_STATE_CONNECTING )
@@ -454,7 +462,7 @@ static void wifi_scan_once( void )
         if ( lvgl_port_lock( 1000 ) )
         {
             /* The radio can't scan while it is associating */
-            if ( core2foraws_wifi_state_get() == CORE2FORAWS_WIFI_STATE_CONNECTING )
+            if ( link_state() == CORE2FORAWS_WIFI_STATE_CONNECTING )
                 lv_label_set_text_static( scan_status, "Connecting to saved network..." );
             else
                 lv_label_set_text_fmt( scan_status, "Scan failed: %s", esp_err_to_name( err ) );
@@ -465,7 +473,7 @@ static void wifi_scan_once( void )
     count = wifi_unique_networks( ap_records, count );
 
     char connected[ MAX_SSID_LEN + 1 ] = "";
-    if ( core2foraws_wifi_state_get() == CORE2FORAWS_WIFI_STATE_CONNECTED )
+    if ( link_state() == CORE2FORAWS_WIFI_STATE_CONNECTED )
         ( void )core2foraws_wifi_saved_ssid_get( connected );
 
     if ( !atomic_load( &scan_active ) || !lvgl_port_lock( 1000 ) ) return;
