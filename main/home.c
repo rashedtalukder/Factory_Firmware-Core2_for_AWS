@@ -1,5 +1,5 @@
 /*
- * AWS IoT EduKit - Core2 for AWS IoT EduKit
+ * AWS IoT Kit - M5Stack Core2
  * Factory Firmware v2.3.0
  * home.c
  * 
@@ -143,5 +143,5 @@ void display_home_tab( lv_obj_t *tv )
 
     lvgl_port_unlock();
     
-    ESP_LOGI( TAG, "\n\nWelcome to your M5Stack Core2 for AWS IoT EduKit reference hardware! Visit https://edukit.workshop.aws to view the tutorials and start learning how to build IoT solutions using AWS services.\n\n" );
+    ESP_LOGI( TAG, "\n\nWelcome to your M5Stack Core2 for AWS IoT Kit reference hardware! Visit https://aws-iot-kit-docs.m5stack.com to view the tutorials and start learning how to build IoT solutions using AWS services.\n\n" );
 }

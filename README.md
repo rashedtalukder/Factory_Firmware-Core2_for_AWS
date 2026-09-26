@@ -1,6 +1,6 @@
-# M5Stack Core2 for AWS IoT EduKit Factory Firmware
+# M5Stack Core2 for AWS IoT Kit Factory Firmware
 
-Factory firmware for the M5Stack Core2 for AWS IoT EduKit. Use this repository to restore your device to the original program or to investigate and freely modify.This application was written to be easy to understand and replicate instead of efficiency. View the [API reference](https://edukit.workshop.aws/en/api-reference/v2/index.html) for using the included board support package.
+Factory firmware for the M5Stack Core2 for AWS IoT Kit. Use this repository to restore your device to the original program or to investigate and freely modify.This application was written to be easy to understand and replicate instead of efficiency. View the [API reference](https://aws-iot-kit-docs.m5stack.com) for using the included board support package.
 
 ## Cloning
 
@@ -19,13 +19,13 @@ In addition to this, either enable [Developer Mode](https://docs.microsoft.com/e
 To clone using HTTPS:
 
 ```shell
-git clone https://github.com/aws-iot-edukit/Factory_Firmware-Core2_for_AWS.git --recurse-submodules
+git clone https://github.com/m5stack/Factory_Firmware-Core2_for_AWS.git --recurse-submodules
 ```
 
 Using SSH:
 
 ```shell
-git clone git@github.com:aws-iot-edukit/Factory_Firmware-Core2_for_AWS.git --recurse-submodules
+git clone git@github.com:m5stack/Factory_Firmware-Core2_for_AWS.git --recurse-submodules
 ```
 
 If you have downloaded the repo without using the `--recurse-submodules` argument, you need to run:

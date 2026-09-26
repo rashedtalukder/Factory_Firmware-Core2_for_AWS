@@ -1,5 +1,5 @@
 /*
- * AWS IoT EduKit - Core2 for AWS IoT EduKit
+ * AWS IoT Kit - M5Stack Core2
  * Factory Firmware v2.3.0
  * main.c
  * 
@@ -127,7 +127,7 @@ void app_main( void )
 {
     esp_err_t console_result = console_start();
     if (console_result != ESP_OK) ESP_LOGE(TAG, "Console startup failed: %s", esp_err_to_name(console_result));
-    ESP_LOGI( TAG, "\n***************************************************\n M5Stack Core2 for AWS IoT EduKit Factory Firmware\n***************************************************" );
+    ESP_LOGI( TAG, "\n***************************************************\n M5Stack Core2 for AWS IoT Kit Factory Firmware\n***************************************************" );
 
     esp_log_level_set( "gpio", ESP_LOG_NONE );
     esp_log_level_set( "ILI9341", ESP_LOG_NONE );

@@ -1,5 +1,5 @@
 /*
- * AWS IoT EduKit - Core2 for AWS IoT EduKit
+ * AWS IoT Kit - M5Stack Core2
  * Factory Firmware v2.3.0
  * home.c
  * 
@@ -47,7 +47,7 @@ void display_cta_tab( lv_obj_t *tv )
     /* Card with flex-column layout */
     lv_obj_t *card = ui_create_card( cta_tab, lv_color_make( 35, 47, 62 ) );
     ui_card_title( card, "Next Steps", lv_color_make(255,255,255) );
-    ui_card_text( card, "Get hands-on experience building IoT solutions and learn about the AWS IoT EduKit program:", lv_color_make(255,255,255) );
+    ui_card_text( card, "Get hands-on experience building IoT solutions with AWS IoT Kit:", lv_color_make(255,255,255) );
 
     /* URL label — flex grows to push it toward bottom */
     lv_obj_t *spacer = lv_obj_create( card );
@@ -57,7 +57,7 @@ void display_cta_tab( lv_obj_t *tv )
 
     lv_obj_t *url_label = lv_label_create( card );
     lv_obj_set_style_text_color( url_label, lv_color_hex( UI_ACCENT_COLOR ), 0 );
-    lv_label_set_text( url_label, "https://edukit.workshop.aws" );
+    lv_label_set_text( url_label, "https://aws-iot-kit-docs.m5stack.com" );
     lv_obj_set_width( url_label, lv_pct( 100 ) );
     lv_obj_set_style_text_align( url_label, LV_TEXT_ALIGN_CENTER, 0 );
     

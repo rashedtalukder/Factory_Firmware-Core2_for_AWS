@@ -1,5 +1,5 @@
 /*
- * AWS IoT EduKit - Core2 for AWS IoT EduKit
+ * AWS IoT Kit - M5Stack Core2
  * Factory Firmware v2.3.0
  * wifi.c
  * 
@@ -156,7 +156,7 @@ static void event_handler( lv_event_t *e )
         /* Create the message box as a child of the modal background */
         mbox = lv_msgbox_create( modal_bg );
         lv_msgbox_add_title( mbox, "Info" );
-        lv_msgbox_add_text( mbox, "Visit https://edukit.workshop.aws\n first to start building IoT apps" );
+        lv_msgbox_add_text( mbox, "Visit https://aws-iot-kit-docs.m5stack.com\n first to start building IoT apps" );
         lv_obj_t *ok_btn = lv_msgbox_add_footer_button( mbox, "Ok" );
         lv_obj_add_event_cb( ok_btn, mbox_event_cb, LV_EVENT_CLICKED, NULL );
         lv_obj_add_event_cb( mbox, mbox_event_cb, LV_EVENT_DELETE, NULL );

@@ -1,5 +1,5 @@
 /*
- * AWS IoT EduKit - Core2 for AWS IoT EduKit
+ * AWS IoT Kit - M5Stack Core2
  * Factory Firmware v2.3.0
  * led_bar.c
  * 
