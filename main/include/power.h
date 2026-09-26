@@ -29,10 +29,8 @@
 
 extern lv_obj_t *power_tab;
 
-typedef struct {
-    lv_obj_t *battery_label;
-    lv_obj_t *charge_label;
-} battery_labels_t;
+#define BATTERY_INDICATOR_WIDTH 22
 
-void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels );
+lv_obj_t *battery_indicator_create( lv_obj_t *parent );
+void display_power_tab( lv_obj_t *tv );
 void battery_task( void *pvParameters );

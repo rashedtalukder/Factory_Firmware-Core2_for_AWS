@@ -28,3 +28,4 @@
 #define CTA_TAB_NAME "CTA"
 
 void display_cta_tab( lv_obj_t *tv );
+void cta_on_right_press( void );

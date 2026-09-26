@@ -143,6 +143,58 @@ int main(void) {
                            input=program.encode(), check=True, capture_output=True)
             subprocess.run([executable], check=True, capture_output=True)
 
+    def test_battery_worker_publishes_state_without_widgets(self):
+        source = (Path(__file__).resolve().parents[2] / "main/power.c").read_text()
+        worker = source[source.index("void battery_task("):]
+        program = r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <setjmp.h>
+typedef int esp_err_t;
+typedef struct {} lv_subject_t;
+#define ESP_OK 0
+#define ESP_LOGW(...) ((void)0)
+#define pdMS_TO_TICKS(value) (value)
+static lv_subject_t subject;
+static lv_subject_t *battery_state = &subject;
+static const struct { float min_volts; } battery_levels[] = {
+    {4.10f}, {3.95f}, {3.80f}, {3.25f}, {0.00f}
+};
+static float voltages[] = {4.2f, 3.9f, 3.1f, 3.1f};
+static bool charging[] = {false, true, true, true};
+static int reads, updates, published[4];
+static jmp_buf finished;
+static esp_err_t core2foraws_power_batt_volts_get(float *voltage) {
+    *voltage = voltages[reads]; return ESP_OK;
+}
+static esp_err_t core2foraws_power_charging_get(bool *value) {
+    *value = charging[reads++]; return ESP_OK;
+}
+static bool lvgl_port_lock(int timeout) {assert(timeout == 1000); return true;}
+static void lvgl_port_unlock(void) {}
+static void lv_subject_set_int(lv_subject_t *value, int state) {
+    assert(value == &subject); published[updates++] = state;
+}
+static void vTaskDelay(int ticks) {
+    assert(ticks == 1000);
+    if (reads == 4) longjmp(finished, 1);
+}
+""" + worker + r"""
+int main(void) {
+    if (setjmp(finished) == 0) battery_task(NULL);
+    assert(updates == 3);
+    assert(published[0] == 0 && published[1] == 10 && published[2] == 12);
+    return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            executable = str(Path(directory) / "battery")
+            subprocess.run(["cc", "-x", "c", "-std=c11", "-Wall", "-Werror", "-fsanitize=address,undefined",
+                            "-o", executable, "-"], input=program.encode(), check=True, capture_output=True)
+            subprocess.run([executable], check=True, capture_output=True)
+
     def test_led_reentry_and_failed_commit(self):
         source = (Path(__file__).resolve().parents[2] / "main/led_bar.c").read_text()
         solid = source[source.index("static void show_solid_until_inactive"):source.index("void sk6812_animation_task(")]

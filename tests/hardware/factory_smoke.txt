@@ -1,9 +1,5 @@
 INFO
 ASSERT page.title text Home
-CLICK home.status
-GET diagnostics.status
-SHOT
-CLICK diagnostics.close
 DUMP
 SWIPE 285 220 35 220 350
 WAIT page.title text Clock

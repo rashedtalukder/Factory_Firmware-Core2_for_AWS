@@ -24,7 +24,6 @@
  */
 
 #include <stdio.h>
-#include <string.h>
 #include <fcntl.h>
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
@@ -110,15 +109,33 @@ static void screenshot_button_cb(enum core2foraws_button_btns button,
 }
 
 static lv_obj_t *tab_view;
-static lv_obj_t *page_dots[10];
 static lv_obj_t *page_title_label;
 
-static battery_labels_t bat_labels;
+typedef struct {
+    const char *name;
+    const char *title;
+    void (*build)(lv_obj_t *tabview);
+    void (*set_active)(bool active);
+    void (*on_right_press)(void);
+} ui_page_t;
 
-#define NUM_TABS 10
+static const ui_page_t pages[] = {
+    {HOME_TAB_NAME, "Home", display_home_tab, NULL, NULL},
+    {CLOCK_TAB_NAME, "Clock", display_clock_tab, clock_set_active, clock_on_right_press},
+    {MPU_TAB_NAME, "IMU", display_mpu_tab, mpu_set_active, NULL},
+    {MICROPHONE_TAB_NAME, "Mic", display_microphone_tab, microphone_set_active, NULL},
+    {LED_BAR_TAB_NAME, "LEDs", display_LED_bar_tab, led_bar_set_active, NULL},
+    {POWER_TAB_NAME, "Power", display_power_tab, NULL, NULL},
+    {TOUCH_TAB_NAME, "Touch", display_touch_tab, touch_set_active, touch_on_right_press},
+    {CRYPTO_TAB_NAME, "Crypto", display_crypto_tab, NULL, NULL},
+    {WIFI_TAB_NAME, "Wi-Fi", display_wifi_tab, wifi_set_active, NULL},
+    {CTA_TAB_NAME, "Next Steps", display_cta_tab, NULL, cta_on_right_press},
+};
+
+#define NUM_TABS (sizeof(pages) / sizeof(pages[0]))
+static lv_obj_t *page_dots[NUM_TABS];
 
 #define HEADER_RIGHT_MARGIN   8
-#define HEADER_BATTERY_WIDTH  22
 #define HEADER_ICON_GAP       6
 
 TaskHandle_t    clock_handle,
@@ -232,26 +249,13 @@ static void ui_start( void )
     }
 
     /* Battery — fixed container pinned right, glyphs centered inside */
-    lv_obj_t *battery_container = lv_obj_create( top_bar );
-    lv_obj_remove_style_all( battery_container );
-    lv_obj_set_size( battery_container, HEADER_BATTERY_WIDTH, 18 );
+    lv_obj_t *battery_container = battery_indicator_create( top_bar );
     lv_obj_align( battery_container, LV_ALIGN_RIGHT_MID, -HEADER_RIGHT_MARGIN, 0 );
-
-    bat_labels.battery_label = lv_label_create( battery_container );
-    lv_label_set_text( bat_labels.battery_label, LV_SYMBOL_BATTERY_FULL );
-    lv_obj_set_width( bat_labels.battery_label, 22 );
-    lv_obj_set_style_text_align( bat_labels.battery_label, LV_TEXT_ALIGN_CENTER, 0 );
-    lv_obj_set_style_text_color( bat_labels.battery_label, lv_color_hex( 0x0ab300 ), 0 );
-    lv_obj_center( bat_labels.battery_label );
-
-    bat_labels.charge_label = lv_label_create( battery_container );
-    lv_label_set_text( bat_labels.charge_label, "" );
-    lv_obj_center( bat_labels.charge_label );
 
     lv_obj_t *wifi_icon = wifi_status_icon_create( top_bar );
     ui_test_id( wifi_icon, "header.wifi" );
     lv_obj_align( wifi_icon, LV_ALIGN_RIGHT_MID,
-                  -( HEADER_RIGHT_MARGIN + HEADER_BATTERY_WIDTH + HEADER_ICON_GAP ), 0 );
+                  -( HEADER_RIGHT_MARGIN + BATTERY_INDICATOR_WIDTH + HEADER_ICON_GAP ), 0 );
 
     /* ── Tabview: grows to fill remaining space ───────────────────────── */
     tab_view = lv_tabview_create( core2forAWS_obj );
@@ -269,16 +273,7 @@ static void ui_start( void )
     that read/write to the peripheral registers and displays the data from that peripheral.
     */
     ESP_LOGD( TAG, "Building UI tabs" );
-    display_home_tab( tab_view );
-    display_clock_tab( tab_view );
-    display_mpu_tab( tab_view );
-    display_microphone_tab( tab_view );
-    display_LED_bar_tab( tab_view );
-    display_power_tab( tab_view, &bat_labels );
-    display_touch_tab( tab_view );
-    display_crypto_tab( tab_view );
-    display_wifi_tab( tab_view );
-    display_cta_tab( tab_view );
+    for (size_t i = 0; i < NUM_TABS; i++) pages[i].build(tab_view);
 
     /* Single BUTTON_RIGHT PRESS dispatch — registered last so it wins.
      * Routes to the right handler depending on the active tab. */
@@ -288,12 +283,6 @@ static void ui_start( void )
 
     ESP_LOGD( TAG, "UI ready" );
 }
-
-static const char *tab_names[] = {
-    HOME_TAB_NAME, CLOCK_TAB_NAME, MPU_TAB_NAME, MICROPHONE_TAB_NAME,
-    LED_BAR_TAB_NAME, POWER_TAB_NAME, TOUCH_TAB_NAME, CRYPTO_TAB_NAME,
-    WIFI_TAB_NAME, CTA_TAB_NAME
-};
 
 /* Routes BUTTON_RIGHT PRESS to the correct tab handler */
 static void right_button_dispatch_cb( enum core2foraws_button_btns button, press_event_t event )
@@ -310,35 +299,21 @@ static void right_button_dispatch_cb( enum core2foraws_button_btns button, press
         ESP_LOGE( TAG, "Invalid active tab index: %u", idx );
         return;
     }
-    ESP_LOGD( TAG, "Right button pressed on tab: %s", tab_names[ idx ] );
-    if ( strcmp( tab_names[ idx ], CLOCK_TAB_NAME ) == 0 )
-        clock_on_right_press();
-    else if ( strcmp( tab_names[ idx ], TOUCH_TAB_NAME ) == 0 )
-        touch_on_right_press();
+    ESP_LOGD( TAG, "Right button pressed on tab: %s", pages[ idx ].name );
+    if (pages[idx].on_right_press) pages[idx].on_right_press();
 }
-
-static const char *tab_display_names[] = {
-    "Home", "Clock", "IMU", "Mic",
-    "LEDs", "Power", "Touch", "Crypto",
-    "Wi-Fi", "Next Steps"
-};
 
 static void tab_event_cb( lv_event_t *e )
 {
     uint16_t tab_idx = lv_tabview_get_tab_active( tab_view );
     if (tab_idx >= NUM_TABS) return;
-    const char *tab_name = tab_names[ tab_idx ];
-    ESP_LOGI( TAG, "Active tab: %s", tab_name );
-    touch_set_active( strcmp( tab_name, TOUCH_TAB_NAME ) == 0 );
+    ESP_LOGI( TAG, "Active tab: %s", pages[tab_idx].name );
 
     /* Update page indicator dots */
     for ( int i = 0; i < NUM_TABS; i++ )
         lv_obj_set_style_bg_color( page_dots[i], ( i == tab_idx ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
-    lv_label_set_text_static( page_title_label, tab_display_names[ tab_idx ] );
+    lv_label_set_text_static( page_title_label, pages[tab_idx].title );
 
-    mpu_set_active( strcmp( tab_name, MPU_TAB_NAME ) == 0 );
-    microphone_set_active(strcmp(tab_name, MICROPHONE_TAB_NAME) == 0);
-    wifi_set_active(strcmp(tab_name, WIFI_TAB_NAME) == 0);
-    led_bar_set_active(strcmp(tab_name, LED_BAR_TAB_NAME) == 0);
-    clock_set_active( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 );
+    for (size_t i = 0; i < NUM_TABS; i++)
+        if (pages[i].set_active) pages[i].set_active(i == tab_idx);
 }

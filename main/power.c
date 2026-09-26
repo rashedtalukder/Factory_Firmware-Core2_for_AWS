@@ -43,11 +43,79 @@ static void brightness_event_handler( lv_event_t *e );
 static void style_toggle_button( lv_obj_t *button );
 
 static const char *TAG = POWER_TAB_NAME;
+static lv_subject_t *battery_state;
+
+#define IDLE_DIM_AFTER_MS   60000
+#define IDLE_DIM_BRIGHTNESS 20
+#define IDLE_CHECK_MS       200
+
+/* Only touched from LVGL callbacks, which run with the LVGL lock held. */
+static uint8_t backlight_level = DISPLAY_BACKLIGHT_START;
+static bool backlight_dimmed;
+
+static void idle_dim_timer_cb( lv_timer_t *timer )
+{
+    ( void )timer;
+    bool idle = lv_display_get_inactive_time( NULL ) >= IDLE_DIM_AFTER_MS;
+    if ( idle == backlight_dimmed ) return;
+
+    esp_err_t err = core2foraws_power_backlight_set( idle ? IDLE_DIM_BRIGHTNESS : backlight_level );
+    if ( err != ESP_OK )
+    {
+        ESP_LOGW( TAG, "Idle backlight change failed: %s", esp_err_to_name( err ) );
+        return;
+    }
+    backlight_dimmed = idle;
+}
+
+static const struct { float min_volts; const char *symbol; uint32_t color; } battery_levels[] = {
+    { 4.10f, LV_SYMBOL_BATTERY_FULL,  0x0ab300 },
+    { 3.95f, LV_SYMBOL_BATTERY_3,     0x0ab300 },
+    { 3.80f, LV_SYMBOL_BATTERY_2,     0xff9900 },
+    { 3.25f, LV_SYMBOL_BATTERY_1,     0xff0000 },
+    { 0.00f, LV_SYMBOL_BATTERY_EMPTY, 0xff0000 },
+};
+
+static void battery_level_changed(lv_observer_t *observer, lv_subject_t *subject)
+{
+    lv_obj_t *label = lv_observer_get_target_obj(observer);
+    int level = lv_subject_get_int(subject) & 7;
+    lv_label_set_text_static(label, battery_levels[level].symbol);
+    lv_obj_set_style_text_color(label, lv_color_hex(battery_levels[level].color), 0);
+}
+
+static void battery_charge_changed(lv_observer_t *observer, lv_subject_t *subject)
+{
+    lv_obj_t *label = lv_observer_get_target_obj(observer);
+    bool charging = (lv_subject_get_int(subject) & 8) != 0;
+    lv_label_set_text_static(label, charging ? LV_SYMBOL_CHARGE : "");
+    if (charging) lv_obj_set_style_text_color(label, lv_color_hex(0x0000cc), 0);
+}
+
+lv_obj_t *battery_indicator_create(lv_obj_t *parent)
+{
+    lv_obj_t *container = lv_obj_create(parent);
+    lv_obj_remove_style_all(container);
+    lv_obj_set_size(container, BATTERY_INDICATOR_WIDTH, 18);
+
+    lv_obj_t *level = lv_label_create(container);
+    lv_obj_set_width(level, BATTERY_INDICATOR_WIDTH);
+    lv_obj_set_style_text_align(level, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(level);
+
+    lv_obj_t *charge = lv_label_create(container);
+    lv_obj_center(charge);
+
+    if (battery_state == NULL) battery_state = lv_subject_create(LV_SUBJECT_TYPE_INT);
+    lv_subject_add_observer_obj(battery_state, battery_level_changed, level, NULL);
+    lv_subject_add_observer_obj(battery_state, battery_charge_changed, charge, NULL);
+    return container;
+}
 
 lv_obj_t *power_tab;
 TaskHandle_t power_handle;
 
-void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
+void display_power_tab( lv_obj_t *tv )
 {
     ESP_LOGD( TAG, "Building tab" );
     lvgl_port_lock( 0 );
@@ -60,13 +128,7 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     ui_card_text( card, "The AXP192 provides power management for the battery and on-board peripherals.\n\nTap to toggle:", lv_color_make(0,0,0) );
 
     /* Button row: LED | Motor | Screen — horizontal flex */
-    lv_obj_t *btn_row = lv_obj_create( card );
-    lv_obj_remove_style_all( btn_row );
-    lv_obj_set_width( btn_row, lv_pct( 100 ) );
-    lv_obj_set_height( btn_row, LV_SIZE_CONTENT );
-    lv_obj_set_layout( btn_row, LV_LAYOUT_FLEX );
-    lv_obj_set_flex_flow( btn_row, LV_FLEX_FLOW_ROW );
-    lv_obj_set_flex_align( btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_t *btn_row = ui_create_row( card, LV_FLEX_ALIGN_SPACE_EVENLY, 0 );
     lv_obj_set_flex_grow( btn_row, 1 );
 
     lv_obj_t *pwr_led_btn = lv_button_create( btn_row );
@@ -98,10 +160,13 @@ void display_power_tab( lv_obj_t *tv, battery_labels_t *bat_labels )
     lv_obj_t *brightness_label = lv_label_create( scrn_btn );
     lv_label_set_text_static( brightness_label, "Screen" );
 
+    if ( lv_timer_create( idle_dim_timer_cb, IDLE_CHECK_MS, NULL ) == NULL )
+        ESP_LOGE( TAG, "Failed to create idle dimming timer" );
+
     lvgl_port_unlock();
 
     if ( xTaskCreatePinnedToCore( battery_task, "batteryTask", configMINIMAL_STACK_SIZE * 2,
-                                 ( void * ) bat_labels, 0, &power_handle, 1 ) != pdPASS )
+                                 NULL, 0, &power_handle, 1 ) != pdPASS )
     {
         power_handle = NULL;
         ESP_LOGE( TAG, "Failed to create battery task" );
@@ -131,6 +196,8 @@ static void brightness_event_handler( lv_event_t *e )
         else lv_obj_add_state(obj, LV_STATE_CHECKED);
         return;
     }
+    backlight_level = brightness;
+    backlight_dimmed = false;
     
     ESP_LOGI( TAG, "Screen brightness: %d", checked );
 }
@@ -170,16 +237,7 @@ static void vibration_event_handler( lv_event_t *e )
 
 void battery_task( void *pvParameters )
 {
-    static const struct { float min_volts; const char *symbol; uint32_t color; } levels[] = {
-        { 4.10f, LV_SYMBOL_BATTERY_FULL,  0x0ab300 },
-        { 3.95f, LV_SYMBOL_BATTERY_3,     0x0ab300 },
-        { 3.80f, LV_SYMBOL_BATTERY_2,     0xff9900 },
-        { 3.25f, LV_SYMBOL_BATTERY_1,     0xff0000 },
-        { 0.00f, LV_SYMBOL_BATTERY_EMPTY, 0xff0000 },
-    };
-    battery_labels_t *labels = ( battery_labels_t * )pvParameters;
-    lv_obj_t *battery_label = labels->battery_label;
-    lv_obj_t *charge_label = labels->charge_label;
+    (void)pvParameters;
     int shown_level = -1;
     int shown_charging = -1;
 
@@ -199,8 +257,8 @@ void battery_task( void *pvParameters )
         }
 
         int level = 0;
-        while ( level < ( int )( sizeof( levels ) / sizeof( levels[ 0 ] ) ) - 1 &&
-                battery_voltage < levels[ level ].min_volts )
+        while ( level < ( int )( sizeof( battery_levels ) / sizeof( battery_levels[ 0 ] ) ) - 1 &&
+                battery_voltage < battery_levels[ level ].min_volts )
             level++;
         /* Unchanged state would only re-render the status bar every second. */
         if ( level == shown_level && ( int )charging == shown_charging )
@@ -217,18 +275,7 @@ void battery_task( void *pvParameters )
             vTaskDelay( pdMS_TO_TICKS( 1000 ) );
             continue;
         }
-        lv_label_set_text_static( battery_label, levels[ level ].symbol );
-        lv_obj_set_style_text_color( battery_label, lv_color_hex( levels[ level ].color ), 0 );
-
-        if ( charging )
-        {
-            lv_label_set_text_static( charge_label, LV_SYMBOL_CHARGE );
-            lv_obj_set_style_text_color( charge_label, lv_color_hex(0x0000cc), 0 );
-        }
-        else
-        {
-            lv_label_set_text_static( charge_label, "" );
-        }
+        lv_subject_set_int(battery_state, level | (charging ? 8 : 0));
         lvgl_port_unlock();
         shown_level = level;
         shown_charging = charging;

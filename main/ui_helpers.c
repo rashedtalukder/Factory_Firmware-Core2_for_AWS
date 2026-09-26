@@ -9,6 +9,26 @@
 #include "uitest.h"
 #include "esp_log.h"
 
+static lv_style_t card_style;
+static lv_style_t title_style;
+static bool styles_ready;
+
+static void ui_styles_init(void)
+{
+    if (styles_ready) return;
+
+    lv_style_init(&card_style);
+    lv_style_set_radius(&card_style, UI_CARD_RADIUS);
+    lv_style_set_bg_opa(&card_style, LV_OPA_COVER);
+    lv_style_set_border_width(&card_style, 0);
+    lv_style_set_pad_all(&card_style, UI_CARD_PAD);
+    lv_style_set_pad_row(&card_style, 6);
+
+    lv_style_init(&title_style);
+    lv_style_set_text_align(&title_style, LV_TEXT_ALIGN_CENTER);
+    styles_ready = true;
+}
+
 void ui_test_id(lv_obj_t *obj, const char *id)
 {
 #ifdef CONFIG_UITEST_ENABLED
@@ -40,6 +60,7 @@ lv_obj_t *ui_tabview_add_tab( lv_obj_t *tv, const char *name )
 
 lv_obj_t *ui_create_card( lv_obj_t *parent, lv_color_t bg_color )
 {
+    ui_styles_init();
     lv_obj_t *card = lv_obj_create( parent );
     lv_obj_set_scrollable( card, false );
 
@@ -47,17 +68,13 @@ lv_obj_t *ui_create_card( lv_obj_t *parent, lv_color_t bg_color )
     lv_obj_set_size( card, 290, 170 );
 
     /* Rounded corners, colored background */
-    lv_obj_set_style_radius( card, UI_CARD_RADIUS, 0 );
+    lv_obj_add_style( card, &card_style, 0 );
     lv_obj_set_style_bg_color( card, bg_color, 0 );
-    lv_obj_set_style_bg_opa( card, LV_OPA_COVER, 0 );
-    lv_obj_set_style_border_width( card, 0, 0 );
 
     /* Flex-column layout for children: title → description → content */
     lv_obj_set_layout( card, LV_LAYOUT_FLEX );
     lv_obj_set_flex_flow( card, LV_FLEX_FLOW_COLUMN );
     lv_obj_set_flex_align( card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
-    lv_obj_set_style_pad_all( card, UI_CARD_PAD, 0 );
-    lv_obj_set_style_pad_row( card, 6, 0 );
 
     return card;
 }
@@ -66,11 +83,12 @@ lv_obj_t *ui_create_card( lv_obj_t *parent, lv_color_t bg_color )
 
 lv_obj_t *ui_card_title( lv_obj_t *card, const char *text, lv_color_t color )
 {
+    ui_styles_init();
     lv_obj_t *label = lv_label_create( card );
+    lv_obj_add_style( label, &title_style, 0 );
     lv_label_set_text_static( label, text );
     lv_obj_set_style_text_color( label, color, 0 );
     lv_obj_set_width( label, lv_pct( 100 ) );
-    lv_obj_set_style_text_align( label, LV_TEXT_ALIGN_CENTER, 0 );
     return label;
 }
 
@@ -82,4 +100,61 @@ lv_obj_t *ui_card_text( lv_obj_t *card, const char *text, lv_color_t color )
     lv_obj_set_style_text_color( label, color, 0 );
     lv_obj_set_width( label, lv_pct( 100 ) );
     return label;
+}
+
+lv_obj_t *ui_create_row( lv_obj_t *parent, lv_flex_align_t main_align, int32_t gap )
+{
+    lv_obj_t *row = lv_obj_create( parent );
+    lv_obj_remove_style_all( row );
+    lv_obj_set_size( row, lv_pct( 100 ), LV_SIZE_CONTENT );
+    lv_obj_set_layout( row, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( row, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( row, main_align, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_style_pad_column( row, gap, 0 );
+    return row;
+}
+
+static void ui_overlay_deleted( lv_event_t *event )
+{
+    lv_obj_t **owner = lv_event_get_user_data( event );
+    if ( *owner == lv_event_get_target_obj( event ) ) *owner = NULL;
+}
+
+lv_obj_t *ui_overlay_create( lv_obj_t **owner, lv_color_t color, lv_opa_t opacity )
+{
+    lv_obj_t *overlay = lv_obj_create( lv_screen_active() );
+    lv_obj_remove_style_all( overlay );
+    lv_obj_set_floating( overlay, true );
+    lv_obj_set_size( overlay, lv_pct( 100 ), lv_pct( 100 ) );
+    lv_obj_set_scrollable( overlay, false );
+    lv_obj_set_style_bg_color( overlay, color, 0 );
+    lv_obj_set_style_bg_opa( overlay, opacity, 0 );
+    *owner = overlay;
+    lv_obj_add_event_cb( overlay, ui_overlay_deleted, LV_EVENT_DELETE, owner );
+    return overlay;
+}
+
+void ui_overlay_close( lv_obj_t **overlay )
+{
+    if (*overlay == NULL) return;
+    lv_obj_delete_async( *overlay );
+    *overlay = NULL;
+}
+
+lv_obj_t *ui_dialog_create( lv_obj_t **overlay, const char *title, const char *text )
+{
+    ui_overlay_create( overlay, lv_color_black(), LV_OPA_50 );
+    lv_obj_t *dialog = lv_msgbox_create( *overlay );
+    lv_obj_set_width( dialog, lv_pct( 90 ) );
+    lv_obj_center( dialog );
+    lv_msgbox_add_title( dialog, title );
+    lv_msgbox_add_text( dialog, text );
+    return dialog;
+}
+
+void ui_dialog_add_button( lv_obj_t *dialog, const char *text, const char *id, lv_event_cb_t cb )
+{
+    lv_obj_t *button = lv_msgbox_add_footer_button( dialog, text );
+    ui_test_id( button, id );
+    lv_obj_add_event_cb( button, cb, LV_EVENT_CLICKED, NULL );
 }

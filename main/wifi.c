@@ -133,9 +133,7 @@ static void connect_request( const char *password )
 
 static void entry_close( void )
 {
-    if ( entry_screen == NULL ) return;
-    lv_obj_delete_async( entry_screen );
-    entry_screen = NULL;
+    ui_overlay_close( &entry_screen );
     password_area = NULL;
 }
 
@@ -163,25 +161,11 @@ static lv_obj_t *entry_button_create( lv_obj_t *parent, const char *text, uint32
     return button;
 }
 
-/* Full-screen layer on the active screen, above the header and tabs and outside their layout. */
-static lv_obj_t *overlay_create( void )
-{
-    lv_obj_t *overlay = lv_obj_create( lv_screen_active() );
-    lv_obj_remove_style_all( overlay );
-    lv_obj_set_floating( overlay, true );
-    lv_obj_set_pos( overlay, 0, 0 );
-    lv_obj_set_size( overlay, lv_pct( 100 ), lv_pct( 100 ) );
-    lv_obj_set_scrollable( overlay, false );
-    return overlay;
-}
-
 static void show_password_entry( void )
 {
     if ( entry_screen != NULL ) return;
 
-    entry_screen = overlay_create();
-    lv_obj_set_style_bg_color( entry_screen, lv_color_hex( UI_SCREEN_BG_COLOR ), 0 );
-    lv_obj_set_style_bg_opa( entry_screen, LV_OPA_COVER, 0 );
+    ui_overlay_create( &entry_screen, lv_color_hex( UI_SCREEN_BG_COLOR ), LV_OPA_COVER );
     lv_obj_set_style_pad_all( entry_screen, 4, 0 );
     lv_obj_set_style_pad_row( entry_screen, 4, 0 );
     lv_obj_set_flex_flow( entry_screen, LV_FLEX_FLOW_COLUMN );
@@ -222,31 +206,14 @@ static void show_password_entry( void )
 
 static void dialog_close( void )
 {
-    if ( dialog_backdrop == NULL ) return;
-    lv_obj_delete_async( dialog_backdrop );
-    dialog_backdrop = NULL;
+    ui_overlay_close( &dialog_backdrop );
     dialog = NULL;
 }
 
 static void dialog_open( const char *title, const char *text )
 {
-    dialog_backdrop = overlay_create();
-    lv_obj_set_style_bg_color( dialog_backdrop, lv_color_black(), 0 );
-    lv_obj_set_style_bg_opa( dialog_backdrop, LV_OPA_50, 0 );
-
-    dialog = lv_msgbox_create( dialog_backdrop );
+    dialog = ui_dialog_create( &dialog_backdrop, title, text );
     ui_test_id( dialog, "wifi.dialog" );
-    lv_obj_set_width( dialog, lv_pct( 90 ) );
-    lv_obj_center( dialog );
-    lv_msgbox_add_title( dialog, title );
-    lv_msgbox_add_text( dialog, text );
-}
-
-static void dialog_button_add( const char *text, const char *id, lv_event_cb_t cb )
-{
-    lv_obj_t *button = lv_msgbox_add_footer_button( dialog, text );
-    ui_test_id( button, id );
-    lv_obj_add_event_cb( button, cb, LV_EVENT_CLICKED, NULL );
 }
 
 static void dialog_dismiss_cb( lv_event_t *e )
@@ -258,7 +225,7 @@ static void dialog_dismiss_cb( lv_event_t *e )
 static void show_get_started( void )
 {
     dialog_open( "Next steps", "Get started at " WIFI_GET_STARTED_URL );
-    dialog_button_add( "OK", "wifi.dialog.ok", dialog_dismiss_cb );
+    ui_dialog_add_button( dialog, "OK", "wifi.dialog.ok", dialog_dismiss_cb );
 }
 
 static void dialog_cancel_cb( lv_event_t *e )
@@ -297,8 +264,8 @@ static void show_connect_failed( esp_err_t err )
     }
 
     dialog_open( title, text );
-    dialog_button_add( "Cancel", "wifi.dialog.cancel", dialog_cancel_cb );
-    dialog_button_add( "Retry", "wifi.dialog.retry", dialog_retry_cb );
+    ui_dialog_add_button( dialog, "Cancel", "wifi.dialog.cancel", dialog_cancel_cb );
+    ui_dialog_add_button( dialog, "Retry", "wifi.dialog.retry", dialog_retry_cb );
 }
 
 static void network_clicked_cb( lv_event_t *e )

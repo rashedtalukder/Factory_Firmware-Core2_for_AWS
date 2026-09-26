@@ -47,6 +47,15 @@ lv_obj_t *ui_card_title( lv_obj_t *card, const char *text, lv_color_t color );
  */
 lv_obj_t *ui_card_text( lv_obj_t *card, const char *text, lv_color_t color );
 
+/* Add a full-width, content-height flex row to a card or another container. */
+lv_obj_t *ui_create_row( lv_obj_t *parent, lv_flex_align_t main_align, int32_t gap );
+
+/* Overlays belong to the active screen and clear the owner's handle on deletion. */
+lv_obj_t *ui_overlay_create( lv_obj_t **owner, lv_color_t color, lv_opa_t opacity );
+void ui_overlay_close( lv_obj_t **overlay );
+lv_obj_t *ui_dialog_create( lv_obj_t **overlay, const char *title, const char *text );
+void ui_dialog_add_button( lv_obj_t *dialog, const char *text, const char *id, lv_event_cb_t cb );
+
 /* ── Tab page helper ───────────────────────────────────────────────────── */
 
 /**

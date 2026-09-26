@@ -104,14 +104,7 @@ void display_LED_bar_tab(lv_obj_t *tv)
     lv_obj_set_style_text_color( instruction_label, lv_color_make(0,0,0), 0 );
 
     /* Slider row: R | G | B — horizontal flex */
-    lv_obj_t *slider_row = lv_obj_create( card );
-    lv_obj_remove_style_all( slider_row );
-    lv_obj_set_width( slider_row, lv_pct( 100 ) );
-    lv_obj_set_height( slider_row, LV_SIZE_CONTENT );
-    lv_obj_set_layout( slider_row, LV_LAYOUT_FLEX );
-    lv_obj_set_flex_flow( slider_row, LV_FLEX_FLOW_ROW );
-    lv_obj_set_flex_align( slider_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
-    lv_obj_set_style_pad_column( slider_row, 4, 0 );
+    lv_obj_t *slider_row = ui_create_row( card, LV_FLEX_ALIGN_SPACE_EVENLY, 4 );
     lv_obj_set_flex_grow( slider_row, 1 );
 
     /* Helper: create a labeled slider column */
