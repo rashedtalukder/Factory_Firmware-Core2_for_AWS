@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * touch.h
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,11 +24,34 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * @file touch.h
+ * @brief FT6336U capacitive touch and virtual front-panel buttons tab interface.
+ */
+
 #pragma once
 
+#include <stdbool.h>
+#include "lvgl.h"
+
+/** @brief Tab identifier and log tag for the Touch tab. */
 #define TOUCH_TAB_NAME "FT6336U-TOUCH"
 
-extern TaskHandle_t touch_handle;
-
+/**
+ * @brief Build the FT6336U Capacitive Touch tab UI and register button callbacks.
+ *
+ * @param tv Parent LVGL tabview widget.
+ */
 void display_touch_tab( lv_obj_t *tv );
-void reset_touch_bg();
+
+/**
+ * @brief Reset the card background color and status text when entering the Touch tab.
+ *
+ * @param active true when the Touch tab is active; false when hidden.
+ */
+void touch_set_active( bool active );
+
+/**
+ * @brief Handle a right capacitive button press while the Touch tab is active.
+ */
+void touch_on_right_press( void );

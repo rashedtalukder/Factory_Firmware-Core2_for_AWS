@@ -1,35 +1,64 @@
-> <b>Effective March 6, 2023, AWS will end support for AWS IoT Kit, a program that guided builders on how to develop simple IoT applications with AWS Partner reference hardware and tutorials. AWS IoT Kit’s reference hardware kit is made and sold by our manufacturing partner, M5Stack Technology Co., Ltd. (https://m5stack.com/), who will continue to offer and support the kit and related software for interested customers.</b>
-
 # M5Stack Core2 for AWS IoT Kit Factory Firmware
 
-Factory firmware for the M5Stack Core2 for AWS IoT Kit. Use this repository to restore your device to the original program or to investigate and freely modify.This application was written to be easy to understand and replicate instead of efficiency. View the API reference for using the included board support package.
+Factory firmware for the M5Stack Core2 for AWS IoT Kit. Use this repository to restore your device to the original program or to investigate and freely modify.This application was written to be easy to understand and replicate instead of efficiency. View the [API reference](https://aws-iot-kit-docs.m5stack.com/en/api-reference/) for using the included board support package.
+
+One firmware image runs on both the original Core2 for AWS and the [Core2 for AWS v1.3](https://docs.m5stack.com/en/products/sku/K010-AWS-V13). The Home, IMU, and Mic screens name the detected kit model, IMU (MPU6886 or BMI270), and microphone (SPM1423 or LMD4737T261), and the boot log also reports the LCD controller (ILI9342C or ILI9342E).
 
 ## Cloning
+
 This repo uses [Git Submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules) to bring in dependent components.
 
 Note: If you download the ZIP file provided by GitHub UI, you will not get the contents of the submodules. Since the downloaded zip will also not be a git repository, you will not be able to compile the code since that is a toolchain requirement. You must clone the repository using the instructions below.
 
 If using Windows, because this repository and its submodules contain symbolic links, set `core.symlinks` to true with the following command:
-```
+
+```shell
 git config --global core.symlinks true
 ```
+
 In addition to this, either enable [Developer Mode](https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development) or, whenever using a git command that writes to the system (e.g. `git pull`, `git clone`, and `git submodule update --init --recursive`), use a console elevated as administrator so that git can properly create symbolic links for this repository. Otherwise, symbolic links will be written as normal files with the symbolic links' paths in them as text. [This](https://blogs.windows.com/windowsdeveloper/2016/12/02/symlinks-windows-10/) gives more explanation.
 
 To clone using HTTPS:
-```
+
+```shell
 git clone https://github.com/m5stack/Factory_Firmware-Core2_for_AWS.git --recurse-submodules
 ```
+
 Using SSH:
-```
+
+```shell
 git clone git@github.com:m5stack/Factory_Firmware-Core2_for_AWS.git --recurse-submodules
 ```
 
 If you have downloaded the repo without using the `--recurse-submodules` argument, you need to run:
-```
+
+```shell
 git submodule update --init --recursive
 ```
 
+## Build
+
+The project targets PlatformIO `espressif32` `7.1.3`, which bundles ESP-IDF `6.1.0` and the GCC 15.2 toolchain. Build the firmware with:
+
+```shell
+pio run -e core2foraws
+```
+
+Managed components are version-pinned in `components/Core2-for-AWS-IoT-Kit/idf_component.yml`. PlatformIO resolves them into the ignored `managed_components` directory during configuration.
+
+ESP-IDF 6 no longer supports CryptoAuthLib's mbedTLS ALT integration. The BSP's signing and verification APIs use the supported direct ATECC608 CryptoAuthLib interface, and legacy `CONFIG_ESP_TLS_USE_SECURE_ELEMENT` integration is disabled.
+
+Cloud-synced folders can interfere with the component manager while it replaces generated dependencies. If configuration reports a managed-component file disappearing during extraction, build from a local non-synced checkout.
+
 ## Important files/folders
+
+See [tests/README.md](tests/README.md) for native regressions and the on-device
+factory smoke script. The factory uses cooperative tab workers, an
+application-owned interrupt-driven UART console, and the independent screenshot
+component for middle-button long-press captures. Home's Status view reports
+internal/DMA memory and capture counters; display-capable startup failures offer
+a normal reboot retry. The optional UI-test and screenshot serial listeners
+remain disabled in the normal configuration.
 
 ### main/main.c
 
@@ -37,13 +66,13 @@ This is the entry point for your application. Start by investigating and/or modi
 
 ### components/Core2-for-AWS-IoT-Kit
 
-This is the location of the [board support package](https://github.com/m5stack/Core2-for-AWS-IoT-Kit). These include drivers and helper libraries for controlling the on-board peripherals on the device.
+This is the location of the board support package. It includes drivers and helper libraries for controlling the on-board peripherals on the device.
 
-### components/esp-cryptoauthlib
+### managed_components/espressif__esp-cryptoauthlib
 
-This is a [ported cryptoauthlib](https://github.com/espressif/esp-cryptoauthlib) from Espressif. This fork is a specific port for the Core2 for AWS reference hardware. This library enables use of the on-board secure element and is tightly integrated with the ESP-IDF. The name of the folder should not be modified.
+This generated directory contains Espressif's managed [CryptoAuthLib component](https://components.espressif.com/components/espressif/esp-cryptoauthlib). Configure its version in the BSP's `idf_component.yml`; do not edit generated files under `managed_components`.
 
-### partitions_16mb.csv
+### partitions_16MB.csv
 
 This is the partition table recommended for most applications. It provides sufficient file system sizes for storing Wi-Fi credentials, the user application, OTA updates, additional file storage, and storage for SPIFFS in the on-board flash. This utilizes the internal + external flash memory.
 
@@ -53,5 +82,8 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 
 ## License
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
-
+This firmware and its BSP are licensed under the MIT License with attribution;
+Rashed Talukder's copyright is recorded from 2022. See each repository's LICENSE
+and the retained upstream notices. The screenshot and UI-test components also
+use MIT, and the Bosch BMI270 configuration file remains BSD-3-Clause.
+Datasheets and managed dependencies retain their own copyright and license terms.

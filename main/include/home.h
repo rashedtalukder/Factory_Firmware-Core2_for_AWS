@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * home.h
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,8 +24,21 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * @file home.h
+ * @brief Welcome / Home tab interface.
+ */
+
 #pragma once
 
+#include "lvgl.h"
+
+/** @brief Tab identifier and log tag for the Home tab. */
 #define HOME_TAB_NAME "HOME"
 
+/**
+ * @brief Build the Home welcome tab UI.
+ *
+ * @param tv Parent LVGL tabview widget.
+ */
 void display_home_tab( lv_obj_t *tv );

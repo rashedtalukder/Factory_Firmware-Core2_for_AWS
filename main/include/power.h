@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * power.h
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,11 +24,40 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * @file power.h
+ * @brief AXP192 power management tab and top-bar battery status indicator.
+ */
+
 #pragma once
 
+#include "lvgl.h"
+
+/** @brief Tab identifier and log tag for the AXP192 Power tab. */
 #define POWER_TAB_NAME "AXP192-POWER"
 
-extern lv_obj_t *power_tab;
+/** @brief Fixed width in pixels of the top-bar battery indicator widget. */
+#define BATTERY_INDICATOR_WIDTH 22
 
-void display_power_tab();
+/**
+ * @brief Create the top-bar battery level and charging indicator widget.
+ *
+ * @param parent Parent container in the top status bar.
+ * @return       Created battery indicator container object.
+ */
+lv_obj_t *battery_indicator_create( lv_obj_t *parent );
+
+/**
+ * @brief Build the AXP192 Power Management tab UI and start the battery worker task.
+ *
+ * @param tv Parent LVGL tabview widget.
+ */
+void display_power_tab( lv_obj_t *tv );
+
+/**
+ * @brief FreeRTOS task that services queued AXP192 peripheral toggles and polls
+ *        battery voltage and charging status.
+ *
+ * @param pvParameters Unused task parameter.
+ */
 void battery_task( void *pvParameters );

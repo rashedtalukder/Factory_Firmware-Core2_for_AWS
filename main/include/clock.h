@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * clock.h
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,13 +24,43 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * @file clock.h
+ * @brief BM8563 real-time clock tab interface and background refresh task.
+ */
+
 #pragma once
 
-#define CLOCK_TAB_NAME "BM85633-CLOCK"
+#include <stdbool.h>
+#include "lvgl.h"
 
-extern lv_obj_t *clock_tab;
-TaskHandle_t clock_handle;
+/** @brief Tab identifier and log tag for the BM8563 RTC tab. */
+#define CLOCK_TAB_NAME "BM8563-CLOCK"
 
-void display_clock_tab();
-void update_roller_time();
+/**
+ * @brief Build the BM8563 real-time clock tab UI and start the RTC worker task.
+ *
+ * @param tv Parent LVGL tabview widget.
+ */
+void display_clock_tab( lv_obj_t *tv );
+
+/**
+ * @brief Notify the clock tab when it becomes visible or hidden.
+ *
+ * @param active true when the tab is active; false when hidden.
+ */
+void clock_set_active( bool active );
+
+/**
+ * @brief Apply the currently selected hour and minute roller values to the RTC.
+ *
+ * Invoked when the right capacitive touch button is pressed on the Clock tab.
+ */
+void clock_on_right_press( void );
+
+/**
+ * @brief FreeRTOS task that periodically reads and updates the BM8563 RTC time.
+ *
+ * @param pvParameters Unused task parameter.
+ */
 void clock_task( void *pvParameters );

@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * mpu.h
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,11 +24,36 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * @file mpu.h
+ * @brief Inertial Measurement Unit (IMU) 3D orientation cube tab interface.
+ */
+
 #pragma once
 
-#define MPU_TAB_NAME "MPU6886-MPU"
+#include <stdbool.h>
+#include "lvgl.h"
 
-extern TaskHandle_t MPU_handle;
+/** @brief Tab identifier and log tag for the IMU tab. */
+#define MPU_TAB_NAME "IMU"
 
+/**
+ * @brief Build the IMU 3D cube tab UI and start the sensor fusion task.
+ *
+ * @param tv Parent LVGL tabview widget.
+ */
 void display_mpu_tab( lv_obj_t *tv );
+
+/**
+ * @brief Wake or pause IMU sampling when entering or leaving the IMU tab.
+ *
+ * @param active true when the IMU tab is active; false when hidden.
+ */
+void mpu_set_active( bool active );
+
+/**
+ * @brief FreeRTOS task that fuses accelerometer and gyroscope readings into a 3D pose.
+ *
+ * @param pvParameters Unused task parameter.
+ */
 void MPU_task( void *pvParameters );

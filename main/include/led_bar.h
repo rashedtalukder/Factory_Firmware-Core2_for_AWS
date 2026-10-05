@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * led_bar.h
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,21 +24,38 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * @file led_bar.h
+ * @brief SK6812 RGB LED bar tab interface and animation task.
+ */
+
 #pragma once
 
+#include <stdbool.h>
+#include "lvgl.h"
+
+/** @brief Tab identifier and log tag for the SK6812 LED bar tab. */
 #define LED_BAR_TAB_NAME "SK6812-LED_BAR"
 
-extern TaskHandle_t led_bar_animation_handle, led_bar_solid_handle;
-
-typedef struct Colors 
-{
-    uint8_t red;
-    uint8_t blue;
-    uint8_t green;
-} colors;
-
+/**
+ * @brief Build the SK6812 RGB LED bar tab UI and start the LED task.
+ *
+ * @param tv Parent LVGL tabview widget.
+ */
 void display_LED_bar_tab( lv_obj_t *tv );
-void update_color();
-void sk6812_solid_task( void *pvParameters );
+
+/**
+ * @brief Switch the LED bars between solid slider-controlled color (when active)
+ *        and the idle chase animation (when inactive).
+ *
+ * @param active true when the LEDs tab is active; false otherwise.
+ */
+void led_bar_set_active( bool active );
+
+/**
+ * @brief FreeRTOS task driving the SK6812 idle animation and solid color updates.
+ *
+ * @param pvParameters Unused task parameter.
+ */
 void sk6812_animation_task( void *pvParameters );
 
