@@ -1,6 +1,9 @@
-[submodule "components/esp-cryptoauthlib"]
-	path = components/esp-cryptoauthlib
-	url = https://github.com/m5stack/esp-cryptoauthlib
 [submodule "components/Core2-for-AWS-IoT-Kit"]
 	path = components/Core2-for-AWS-IoT-Kit
-	url = https://github.com/m5stack/Core2-for-AWS-IoT-Kit.git
+	url = https://github.com/rashedtalukder/Core2-for-AWS-IoT-Kit.git
+[submodule "components/core2foraws-screenshot"]
+	path = components/core2foraws-screenshot
+	url = https://github.com/rashedtalukder/core2foraws-screenshot.git
+[submodule "components/core2foraws-uitest"]
+	path = components/core2foraws-uitest
+	url = https://github.com/rashedtalukder/core2foraws-uitest.git

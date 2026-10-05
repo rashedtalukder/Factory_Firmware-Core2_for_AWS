@@ -1,0 +1,43 @@
+INFO
+ASSERT page.title text Home
+DUMP
+SWIPE 285 220 35 220 350
+WAIT page.title text Clock
+GET clock.hour
+GET clock.minute
+SHOT
+SWIPE 285 220 35 220 350
+WAIT page.title text IMU
+SWIPE 285 220 35 220 350
+WAIT page.title text Mic
+WAIT mic.state checked true
+SHOT
+SWIPE 285 220 35 220 350
+WAIT page.title text LEDs
+WAIT mic.state checked false
+GET led.red
+GET led.green
+GET led.blue
+SWIPE 35 220 285 220 350
+WAIT page.title text Mic
+WAIT mic.state checked true
+SWIPE 285 220 35 220 350
+WAIT page.title text LEDs
+WAIT mic.state checked false
+SWIPE 285 220 35 220 350
+WAIT page.title text Power
+CLICK power.led
+ASSERT power.led checked false
+CLICK power.led
+ASSERT power.led checked true
+SHOT
+SWIPE 285 220 35 220 350
+WAIT page.title text Touch
+SWIPE 285 220 35 220 350
+WAIT page.title text Crypto
+SWIPE 285 220 35 220 350
+WAIT page.title text Wi-Fi
+WAIT wifi.state text "Scan complete"
+DUMP
+SHOT
+CANCEL

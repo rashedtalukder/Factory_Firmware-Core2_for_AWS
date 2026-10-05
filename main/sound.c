@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * sound.c
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -29,19 +30,38 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-#include "core2forAWS.h"
+#include "esp_log.h"
+
+#include "core2foraws.h"
 
 #include "sound.h"
 
+static const char *TAG = "SOUND";
+
 void sound_task( void *pvParameters )
 {
+    ESP_LOGD( TAG, "Playing startup sound" );
     esp_err_t err = core2foraws_audio_speaker_enable( true );
     if ( err == ESP_OK )
     {    
         extern const unsigned char music[ 120264 ];
-        core2foraws_audio_speaker_write( ( const uint8_t * )music, 120264 );
-        core2foraws_audio_speaker_enable( false );
+        err = core2foraws_audio_speaker_write( ( const uint8_t * )music, 120264 );
+        if (err == ESP_OK) err = core2foraws_audio_speaker_drain();
+        if ( err != ESP_OK )
+            ESP_LOGE( TAG, "Failed to play startup sound: %s", esp_err_to_name( err ) );
+
     }
+    else
+    {
+        ESP_LOGE( TAG, "Failed to enable speaker: %s", esp_err_to_name( err ) );
+    }
+
+    esp_err_t disable_err;
+    while ((disable_err = core2foraws_audio_speaker_enable(false)) != ESP_OK) {
+        ESP_LOGW(TAG, "Speaker cleanup pending: %s", esp_err_to_name(disable_err));
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    if (err == ESP_OK) ESP_LOGD(TAG, "Startup sound finished");
 
     vTaskDelete( NULL ); // Deletes the current task from FreeRTOS task list and the FreeRTOS idle task will remove from memory.
 }

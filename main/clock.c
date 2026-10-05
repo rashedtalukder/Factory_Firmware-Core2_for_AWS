@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * clock.c
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,16 +25,16 @@
  */
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
-#include <math.h>
 #include <freertos/FreeRTOS.h>
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
 
-#include "core2forAWS.h"
+#include "core2foraws.h"
+#include "ui_helpers.h"
 #include "clock.h"
 
 static const char *TAG = CLOCK_TAB_NAME;
@@ -42,196 +43,169 @@ lv_obj_t *clock_tab;
 
 static lv_obj_t *hour_roller;
 static lv_obj_t *minute_roller;
+static lv_obj_t *time_label;
+static lv_obj_t *set_confirm_label;
+static atomic_uint pending_time;
+static atomic_bool clock_active;
 
-static void hour_event_handler( lv_obj_t *obj, lv_event_t event )
+void clock_on_right_press( void )
 {
-    if ( event == LV_EVENT_VALUE_CHANGED )
+    if ( !lvgl_port_lock( 1000 ) )
     {
-        int hour = lv_roller_get_selected( obj );
-        
-        struct tm current_time;
-        core2foraws_rtc_time_get( &current_time );
-        current_time.tm_hour = hour;
-        core2foraws_rtc_time_set( current_time );
+        ESP_LOGW( TAG, "LVGL lock timeout; ignoring time set request" );
+        return;
+    }
+    int hour = lv_roller_get_selected( hour_roller );
+    int minute = lv_roller_get_selected( minute_roller );
+    lvgl_port_unlock();
+    atomic_store(&pending_time, (unsigned int)(hour * 60 + minute + 1));
+    if (clock_handle) xTaskNotifyGive(clock_handle);
+}
+
+static void set_time_cb(lv_event_t *event)
+{
+    (void)event;
+    clock_on_right_press();
+}
+
+void clock_set_active( bool active )
+{
+    /* Keeps all RTC access on clock_task; the notification makes it resync
+     * the rollers when the tab opens. */
+    atomic_store( &clock_active, active );
+    if ( active && clock_handle )
+        xTaskNotifyGive( clock_handle );
+}
+
+/* Build zero-padded two-digit roller options: "00\n01\n…\n(count-1)" */
+static void build_two_digit_options( char *buffer, size_t buffer_size, int count )
+{
+    size_t used = 0;
+    for ( int i = 0; i < count; i++ )
+    {
+        int written = snprintf( &buffer[used], buffer_size - used,
+                                ( i == ( count - 1 ) ) ? "%02d" : "%02d\n", i );
+        if ( written < 0 || (size_t)written >= ( buffer_size - used ) )
+            break;
+        used += (size_t)written;
     }
 }
 
-static void minute_event_handler( lv_obj_t *obj, lv_event_t event )
+void display_clock_tab( lv_obj_t *tv )
 {
-    if ( event == LV_EVENT_VALUE_CHANGED )
-    {
-        int minute = lv_roller_get_selected(obj);
-        
-        struct tm current_time;
-        core2foraws_rtc_time_get( &current_time );
-        current_time.tm_min = minute;
-        core2foraws_rtc_time_set( current_time );
-    }
-}
+    ESP_LOGD( TAG, "Building tab" );
+    lvgl_port_lock( 0 );
+    clock_tab = ui_tabview_add_tab( tv, CLOCK_TAB_NAME );
 
-void update_roller_time()
-{
-    struct tm current_time;
-    core2foraws_rtc_time_get( &current_time );
-    
-    lv_roller_set_selected( hour_roller, current_time.tm_hour, LV_ANIM_OFF );
-    lv_roller_set_selected( minute_roller, current_time.tm_min, LV_ANIM_OFF );
+    /* Card with flex-column layout */
+    lv_obj_t *card = ui_create_card( clock_tab, lv_color_make( 254, 230, 0 ) );
+    ui_card_title( card, "BM8563 Real-time Clock", lv_color_make(0,0,0) );
 
-    ESP_LOGI( TAG, "Current Date: %d-%02d-%02d  Time: %02d:%02d:%02d", 
-        current_time.tm_year, current_time.tm_mon, current_time.tm_mday, current_time.tm_hour, current_time.tm_min, current_time.tm_sec );
-}
+    /* Live time display inside the card */
+    time_label = lv_label_create( card );
+    lv_label_set_text( time_label, "00:00:00 AM" );
+    lv_obj_set_style_text_color( time_label, lv_color_make(0,0,0), 0 );
+    lv_obj_set_style_text_align( time_label, LV_TEXT_ALIGN_CENTER, 0 );
+    lv_obj_set_width( time_label, lv_pct( 100 ) );
 
-/*
-Counts the number of digits using binary search. Not as elegant as recursive, but it's much faster.
-*/
-static uint16_t count_bsearch( int i )
-{
-    if ( i < 0 )
-    {
-        if ( i == INT_MIN )
-            return 10; // special case for -2^31 because 2^31 can't fit in a two's complement 32-bit integer
-        i = -i;
-    }
-    if ( i < 100000 )
-    {
-        if ( i < 1000 )
-        {
-            if ( i < 10 ) return 1;
-            else if ( i < 100 ) return 2;
-            else return 3;
-        } 
-        else
-        {
-            if (i < 10000) return 4;
-            else return 5;
-        }
-    } 
-    else
-    {
-        if ( i < 10000000 )
-        {
-            if ( i < 1000000 ) return 6;
-            else return 7;
-        } 
-        else
-        {
-            if ( i < 100000000 ) return 8;
-            else if ( i < 1000000000 ) return 9;
-            else return 10;
-        }
-    }
-}
+    /* Roller row: hour : minute — horizontal flex inside the card */
+    lv_obj_t *roller_row = lv_obj_create( card );
+    lv_obj_remove_style_all( roller_row );
+    lv_obj_set_width( roller_row, lv_pct( 100 ) );
+    lv_obj_set_height( roller_row, LV_SIZE_CONTENT );
+    lv_obj_set_layout( roller_row, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( roller_row, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( roller_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_style_pad_column( roller_row, 8, 0 );
+    lv_obj_set_flex_grow( roller_row, 1 );
 
-static char *generate_roller_str( int number )
-{
-    uint16_t temp_number = number;
-    const uint16_t last_number = number - 1;
-    const uint16_t last_number_digits = count_bsearch( last_number );
-    size_t roller_str_len = 0;
-    
-    for( int i = last_number_digits - 1; i >= 0; i-- )
-    {
-        size_t number_cutoff = pow( 10, i ) - 1;
-        roller_str_len += ( i + 2 )  *( temp_number - number_cutoff );
-        temp_number = number_cutoff;
-    }
-    roller_str_len--;
-    
-    char *roller_str = heap_caps_malloc( roller_str_len, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM );
-    roller_str[ 0 ] = '\0';
-    for( int i = 0; i < number; i++ )
-    {
-        size_t i_size = count_bsearch( i ) + 2;
-        char message[ i_size ];
-        snprintf( message, i_size, "%d\n", i );
-        strncat( roller_str, message, roller_str_len - strlen( roller_str ) - 1 );
-    }
-    return roller_str;
-}
-
-void display_clock_tab( lv_obj_t*tv, lv_obj_t *core2forAWS_screen_obj )
-{
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-    clock_tab = lv_tabview_add_tab( tv, CLOCK_TAB_NAME );  // Create a LVGL tabview
-
-    /* Create the main body object and set background within the tab */
-    static lv_style_t bg_style;
-    lv_obj_t *clock_bg = lv_obj_create( clock_tab, NULL );
-    lv_obj_align( clock_bg, NULL, LV_ALIGN_IN_TOP_LEFT, 16, 36 );
-    lv_obj_set_size( clock_bg, 290, 190 );
-    lv_obj_set_click( clock_bg, false );
-    lv_style_init( &bg_style );
-    lv_style_set_bg_color( &bg_style, LV_STATE_DEFAULT, lv_color_make( 254, 230, 0 ) );
-    lv_obj_add_style( clock_bg, LV_OBJ_PART_MAIN, &bg_style );
-
-    /* Create the title within the main body object */
-    static lv_style_t title_style;
-    lv_style_init( &title_style );
-    lv_style_set_text_font( &title_style, LV_STATE_DEFAULT, LV_THEME_DEFAULT_FONT_TITLE );
-    lv_style_set_text_color( &title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
-    lv_obj_t *tab_title_label = lv_label_create( clock_bg, NULL );
-    lv_obj_add_style( tab_title_label, LV_OBJ_PART_MAIN, &title_style );
-    lv_label_set_static_text( tab_title_label, "BM8563 Real-time Clock" );
-    lv_obj_align( tab_title_label, clock_bg, LV_ALIGN_IN_TOP_MID, 0, 10 );
-
-    /* Create the sensor information label object */
-    lv_obj_t *body_label = lv_label_create( clock_bg, NULL );
-    lv_label_set_long_mode( body_label, LV_LABEL_LONG_BREAK );
-    lv_label_set_static_text( body_label, "The BM8563 is an accurate, low power real-time clock. ▲" );
-    lv_obj_set_width( body_label, 252 );
-    lv_obj_align( body_label, clock_bg, LV_ALIGN_IN_TOP_LEFT, 20, 40 );
-
-    static lv_style_t body_style;
-    lv_style_init( &body_style );
-    lv_style_set_text_color( &body_style, LV_STATE_DEFAULT, LV_COLOR_BLACK );
-    lv_obj_add_style( body_label, LV_OBJ_PART_MAIN, &body_style );
-
-    char *hours_str = generate_roller_str( 24 );
-    hour_roller = lv_roller_create( clock_bg, NULL );
+    /* Zero-padded roller options (stack buffers — rollers copy them) */
+    char hours_str[24 * 3];
+    build_two_digit_options( hours_str, sizeof( hours_str ), 24 );
+    hour_roller = lv_roller_create( roller_row );
+    ui_test_id(hour_roller, "clock.hour");
     lv_roller_set_options( hour_roller, hours_str, LV_ROLLER_MODE_NORMAL );
     lv_roller_set_visible_row_count( hour_roller, 2 );
-    lv_roller_set_auto_fit( hour_roller, false );
     lv_obj_set_width( hour_roller, 60 );
-    lv_obj_align( hour_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, -40, -20 );
-    heap_caps_free( hours_str );
 
-    lv_obj_t *separator_label = lv_label_create( clock_bg, NULL );
-    lv_label_set_static_text( separator_label, ":" );
-    lv_obj_set_width( separator_label, 4 );
-    lv_obj_align( separator_label, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 0, -50 );
+    lv_obj_t *separator_label = lv_label_create( roller_row );
+    lv_label_set_text_static( separator_label, ":" );
 
-    char *minutes_str = generate_roller_str( 60 );
-    minute_roller = lv_roller_create( clock_bg, hour_roller );
+    char minutes_str[60 * 3];
+    build_two_digit_options( minutes_str, sizeof( minutes_str ), 60 );
+    minute_roller = lv_roller_create( roller_row );
+    ui_test_id(minute_roller, "clock.minute");
     lv_roller_set_options( minute_roller, minutes_str, LV_ROLLER_MODE_NORMAL );
-    lv_obj_align( minute_roller, clock_bg, LV_ALIGN_IN_BOTTOM_MID, 40, -20 );
-    heap_caps_free( minutes_str );
+    lv_roller_set_visible_row_count( minute_roller, 2 );
+    lv_obj_set_width( minute_roller, 60 );
 
-    lv_obj_set_event_cb( hour_roller, hour_event_handler );
-    lv_obj_set_event_cb( minute_roller, minute_event_handler );
-    xSemaphoreGive( core2foraws_display_semaphore );
+    lv_obj_t *set_button = lv_button_create(roller_row);
+    lv_obj_set_size(set_button, 54, 30);
+    lv_obj_add_event_cb(set_button, set_time_cb, LV_EVENT_CLICKED, NULL);
+    ui_test_id(set_button, "clock.set");
+    set_confirm_label = lv_label_create( set_button );
+    lv_label_set_text_static( set_confirm_label, "Set" );
+    lv_obj_center(set_confirm_label);
+    ui_test_id(set_confirm_label, "clock.result");
 
-    xTaskCreatePinnedToCore(clock_task, "clockTask", configMINIMAL_STACK_SIZE  *3, (void*) core2forAWS_screen_obj, 0, &clock_handle, 1);
+    lvgl_port_unlock();
+
+    if ( xTaskCreatePinnedToCore( clock_task, "clockTask", configMINIMAL_STACK_SIZE * 3,
+                                 NULL, 0, &clock_handle, 1 ) != pdPASS )
+    {
+        clock_handle = NULL;
+        ESP_LOGE( TAG, "Failed to create clock task" );
+    }
 }
 
-void clock_task(void *pvParameters)
-{
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-    lv_obj_t *time_label = lv_label_create((lv_obj_t*)pvParameters, NULL );
-    lv_label_set_text(time_label, "00:00:00 AM");
-    lv_label_set_align(time_label, LV_LABEL_ALIGN_CENTER);
-    lv_obj_align(time_label, NULL, LV_ALIGN_IN_TOP_MID, 4, 10);
-    xSemaphoreGive( core2foraws_display_semaphore );
-
-    for( ; ; )
+void clock_task( void *pvParameters )
+{    for( ; ; )
     {
+        /* Refresh once per second while the tab is visible; otherwise sleep
+         * until the tab opens so the shared I2C bus stays free. */
+        uint32_t refresh_rollers = ulTaskNotifyTake( pdTRUE,
+            atomic_load( &clock_active ) ? pdMS_TO_TICKS( 1000 ) : portMAX_DELAY );
+        unsigned int requested = atomic_exchange(&pending_time, 0);
+        if ( !atomic_load( &clock_active ) && requested == 0 )
+            continue;
+
         struct tm current_time;
-        core2foraws_rtc_time_get( &current_time );
+        esp_err_t err = core2foraws_rtc_time_get( &current_time );
+        if (err == ESP_OK && requested != 0) {
+            current_time.tm_hour = (requested - 1) / 60;
+            current_time.tm_min = (requested - 1) % 60;
+            current_time.tm_sec = 0;
+            err = core2foraws_rtc_time_set(current_time);
+        }
+        if ( err != ESP_OK )
+        {
+            ESP_LOGW( TAG, "RTC read failed: %s", esp_err_to_name( err ) );
+            if (requested != 0 && lvgl_port_lock(1000)) {
+                lv_label_set_text(set_confirm_label, "Error");
+                lvgl_port_unlock();
+            }
+            continue;
+        }
         char clock_buf[ 26 ];
         strftime( clock_buf, 26, "%I:%M:%S %p", &current_time );
-        xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );
-        lv_label_set_text( time_label, clock_buf );
-        xSemaphoreGive( core2foraws_display_semaphore );
-        vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+
+        /* Bounded wait with padding: a healthy LVGL loop frees the mutex
+         * within a few ms. If the render loop is wedged, skip this refresh
+         * instead of blocking forever (which would deadlock this task too). */
+        if ( lvgl_port_lock( 1000 ) )
+        {
+            lv_label_set_text( time_label, clock_buf );
+            if( refresh_rollers )
+            {
+                lv_roller_set_selected( hour_roller, current_time.tm_hour, LV_ANIM_OFF );
+                lv_roller_set_selected( minute_roller, current_time.tm_min, LV_ANIM_OFF );
+                lv_label_set_text_static( set_confirm_label, requested != 0 ? "Saved" : "Set" );
+            }
+            lvgl_port_unlock();
+        }
+        else
+        {
+            ESP_LOGW( TAG, "LVGL lock timeout; skipping clock refresh" );
+        }
     }
-    vTaskDelete( NULL ); // Should never get to here...
 }

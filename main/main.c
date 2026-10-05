@@ -1,9 +1,10 @@
 /*
- * AWS IoT Kit - Core2 for AWS IoT Kit
- * Factory Firmware v2.3.0
+ * AWS IoT Kit - M5Stack Core2
+ * Factory Firmware v3.0.0
  * main.c
  * 
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2022 Rashed Talukder. All Rights Reserved.
+ * Copyright (C) 2022 M5Stack. All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,29 +25,20 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
+#include <fcntl.h>
+#include "driver/uart.h"
+#include "driver/uart_vfs.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "freertos/queue.h"
-#include "freertos/event_groups.h"
 
-#include "esp_freertos_hooks.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "esp_vfs_fat.h"
-#include "driver/gpio.h"
-#include "driver/spi_common.h"
-#include "sdmmc_cmd.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "nvs_flash.h"
 
-#include "core2forAWS.h"
+#include "core2foraws.h"
 
+#include "ui_helpers.h"
 #include "sound.h"
 #include "home.h"
 #include "wifi.h"
@@ -58,118 +50,275 @@
 #include "led_bar.h"
 #include "crypto.h"
 #include "cta.h"
+#include "screenshot.h"
+#ifdef CONFIG_UITEST_ENABLED
+#include "uitest.h"
+#endif
 
 static const char *TAG = "MAIN";
+static esp_err_t console_start(void)
+{
+#ifdef CONFIG_ESP_CONSOLE_UART
+    if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM)) {
+        esp_err_t result = uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 2048, 0, 0, NULL, 0);
+        if (result != ESP_OK) return result;
+    }
+    uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+    int flags = fcntl(fileno(stdin), F_GETFL);
+    if (flags < 0 || fcntl(fileno(stdin), F_SETFL, flags | O_NONBLOCK) < 0) return ESP_FAIL;
+#endif
+    return ESP_OK;
+}
+
+static void restart_button_cb(lv_event_t *event)
+{
+    (void)event;
+    esp_restart();
+}
+
+static void show_startup_error(esp_err_t error)
+{
+    if (core2foraws_display_ptr == NULL || !lvgl_port_lock(1000)) return;
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_clean(screen);
+    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *label = lv_label_create(screen);
+    lv_obj_set_width(label, 280);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text_fmt(label, "Hardware initialization failed\n%s", esp_err_to_name(error));
+    lv_obj_t *retry = lv_button_create(screen);
+    lv_obj_set_size(retry, 112, 36);
+    lv_label_set_text(lv_label_create(retry), LV_SYMBOL_REFRESH " Retry");
+    lv_obj_add_event_cb(retry, restart_button_cb, LV_EVENT_CLICKED, NULL);
+    lvgl_port_unlock();
+}
 
 static void ui_start(void);
-static void tab_event_cb(lv_obj_t *slider, lv_event_t event);
+static void tab_event_cb(lv_event_t *e);
+static void right_button_dispatch_cb( enum core2foraws_button_btns button, press_event_t event );
+
+static void screenshot_button_cb(enum core2foraws_button_btns button,
+                                  press_event_t event)
+{
+    if (button == BUTTON_MIDDLE && event == LONGPRESS)
+    {
+        esp_err_t err = screenshot_take_async( NULL, NULL, NULL );
+        if ( err != ESP_OK )
+            ESP_LOGE( TAG, "Screenshot request failed: %s", esp_err_to_name( err ) );
+    }
+}
 
 static lv_obj_t *tab_view;
-TaskHandle_t    FFT_handle,
-                led_bar_animation_handle, 
-                led_bar_solid_handle,
-                mic_handle,
-                MPU_handle,
-                touch_handle,
-                wifi_handle;
+static lv_obj_t *page_title_label;
 
-LV_IMG_DECLARE( powered_by_aws_logo );
+typedef struct {
+    const char *name;
+    const char *title;
+    void (*build)(lv_obj_t *tabview);
+    void (*set_active)(bool active);
+    void (*on_right_press)(void);
+} ui_page_t;
+
+static const ui_page_t pages[] = {
+    {HOME_TAB_NAME, "Home", display_home_tab, NULL, NULL},
+    {CLOCK_TAB_NAME, "Clock", display_clock_tab, clock_set_active, clock_on_right_press},
+    {MPU_TAB_NAME, "IMU", display_mpu_tab, mpu_set_active, NULL},
+    {MICROPHONE_TAB_NAME, "Mic", display_microphone_tab, microphone_set_active, NULL},
+    {LED_BAR_TAB_NAME, "LEDs", display_LED_bar_tab, led_bar_set_active, NULL},
+    {POWER_TAB_NAME, "Power", display_power_tab, NULL, NULL},
+    {TOUCH_TAB_NAME, "Touch", display_touch_tab, touch_set_active, touch_on_right_press},
+    {CRYPTO_TAB_NAME, "Crypto", display_crypto_tab, NULL, NULL},
+    {WIFI_TAB_NAME, "Wi-Fi", display_wifi_tab, wifi_set_active, NULL},
+    {CTA_TAB_NAME, "Next Steps", display_cta_tab, NULL, cta_on_right_press},
+};
+
+#define NUM_TABS (sizeof(pages) / sizeof(pages[0]))
+static lv_obj_t *page_dots[NUM_TABS];
+
+#define HEADER_RIGHT_MARGIN   8
+#define HEADER_ICON_GAP       6
+
+TaskHandle_t    clock_handle,
+                led_bar_animation_handle, 
+                led_bar_solid_handle;
+
+LV_IMAGE_DECLARE( powered_by_aws_logo );
 
 void app_main( void )
 {
+    esp_err_t console_result = console_start();
+    if (console_result != ESP_OK) ESP_LOGE(TAG, "Console startup failed: %s", esp_err_to_name(console_result));
     ESP_LOGI( TAG, "\n***************************************************\n M5Stack Core2 for AWS IoT Kit Factory Firmware\n***************************************************" );
 
     esp_log_level_set( "gpio", ESP_LOG_NONE );
     esp_log_level_set( "ILI9341", ESP_LOG_NONE );
 
-    core2foraws_init(); // Initializes the enabled hardware drivers and calls their respective initialization functions.
-    
+    esp_err_t err = core2foraws_init();
+    if ( err != ESP_OK )
+    {
+        ESP_LOGE( TAG, "Hardware initialization failed: %s", esp_err_to_name( err ) );
+        show_startup_error(err);
+        return;
+    }
+    ESP_LOGI( TAG, "Hardware drivers initialized" );
+    core2foraws_board_info_t board;
+    if ( core2foraws_board_info_get( &board ) == ESP_OK )
+        ESP_LOGI( TAG, "%s: %s IMU, %s microphone, %s LCD", board.model_name,
+                  board.imu_name, board.microphone_name, board.lcd_name );
+    core2foraws_common_heap_report( TAG, NULL );
+
     ui_start(); // Starts all the sensor readings and shows them on the display using the LVGL library
+
+#ifdef CONFIG_UITEST_ENABLED
+    err = uitest_init();
+    if ( err != ESP_OK )
+        ESP_LOGE( TAG, "Failed to initialize UI test harness: %s", esp_err_to_name( err ) );
+#endif
+
+    err = screenshot_start();
+    if (err != ESP_OK) ESP_LOGE(TAG, "Screenshot startup failed: %s", esp_err_to_name(err));
+    err = core2foraws_button_register_callback( BUTTON_MIDDLE, LONGPRESS, screenshot_button_cb );
+    if ( err != ESP_OK )
+        ESP_LOGE( TAG, "Failed to register screenshot button: %s", esp_err_to_name( err ) );
+
+    ESP_LOGI( TAG, "Factory firmware ready" );
 }
 
 static void ui_start( void )
 {
     /* Displays the Powered by AWS logo */
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );   // Takes the core2foraws_display_semaphore mutex. This blocks any other task attempting to take it before it's free'd from executing.
-    lv_obj_t *opener_scr = lv_scr_act();   // Create a new LVGL "screen". Screens can be though of as a window.
-    lv_obj_t *aws_img_obj = lv_img_create( opener_scr, NULL );   // Creates an LVGL image object and assigns it as a child of the opener_scr parent screen.
-    lv_img_set_src( aws_img_obj, &powered_by_aws_logo );  // Sets the image object with the image data from the powered_by_aws_logo file which contains hex pixel matrix of the image.
-    lv_obj_align( aws_img_obj, NULL, LV_ALIGN_CENTER, 0, 0 ); // Aligns the image object to the center of the parent screen.
-    lv_obj_set_style_local_bg_color( opener_scr, LV_OBJ_PART_MAIN, 0, LV_COLOR_WHITE );   // Sets the background color of the screen to white.
-    xSemaphoreGive( core2foraws_display_semaphore );  // Frees the core2foraws_display_semaphore so that another task can use it. In this case, the higher priority guiTask will take it and then read the values to then display.
+    lvgl_port_lock( 0 );
+    lv_obj_t *opener_scr = lv_screen_active();
+    lv_obj_t *aws_img_obj = lv_image_create( opener_scr );
+    lv_image_set_src( aws_img_obj, &powered_by_aws_logo );
+    lv_obj_align( aws_img_obj, LV_ALIGN_CENTER, 0, 0 );
+    lv_obj_set_style_bg_color( opener_scr, lv_color_make(255,255,255), 0 );
+    lv_obj_set_style_bg_opa( opener_scr, LV_OPA_COVER, 0 );
+    lvgl_port_unlock();
 
-    /* 
-    You should release the core2foraws_display_semaphore semaphore before calling a blocking function like vTaskDelay because 
-    without doing so, no other task can access it that might need it. This includes the guiTask which
-    writes the objects to the display itself over SPI.
-    */
+    vTaskDelay( pdMS_TO_TICKS( 1500 ) );
+    
+    /* Above the LVGL task (priority 4, core 1) so rendering the first screen
+     * cannot starve the short I2S DMA queue and make the speaker click. */
+    if ( xTaskCreatePinnedToCore( sound_task, "soundTask", 4096 * 2,
+                                 NULL, 5, NULL, 1 ) != pdPASS )
+        ESP_LOGE( TAG, "Failed to create startup sound task" );
+    
+    lvgl_port_lock( 0 );
+    lv_obj_clean( opener_scr );
+    lv_obj_t *core2forAWS_obj = lv_obj_create( NULL );
+    lv_obj_set_style_bg_color( core2forAWS_obj, lv_color_hex( UI_SCREEN_BG_COLOR ), 0 );
+    lv_obj_set_style_bg_opa( core2forAWS_obj, LV_OPA_COVER, 0 );
+    lv_screen_load_anim( core2forAWS_obj, LV_SCREEN_LOAD_ANIM_MOVE_LEFT, 400, 0, false );
 
-    vTaskDelay( pdMS_TO_TICKS( 1500 ) ); // FreeRTOS scheduler block execution for 1.5 seconds to keep showing the Powered by AWS logo.
+    /* Root layout: flex column → top_bar + tabview stack vertically */
+    lv_obj_set_layout( core2forAWS_obj, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( core2forAWS_obj, LV_FLEX_FLOW_COLUMN );
+    lv_obj_set_style_pad_all( core2forAWS_obj, 0, 0 );
+    lv_obj_set_style_pad_row( core2forAWS_obj, 0, 0 );
+
+    /* ── Top bar: absolute children → title left, dots center, battery right ── */
+    lv_obj_t *top_bar = lv_obj_create( core2forAWS_obj );
+    lv_obj_remove_style_all( top_bar );
+    lv_obj_set_size( top_bar, lv_pct( 100 ), 30 );
+    lv_obj_set_scrollable( top_bar, false );
+
+    /* Page title label — pinned left */
+    page_title_label = lv_label_create( top_bar );
+    ui_test_id(page_title_label, "page.title");
+    lv_label_set_text_static( page_title_label, "Home" );
+    lv_obj_set_style_text_color( page_title_label, lv_color_hex( 0xffffff ), 0 );
+    lv_obj_set_style_text_font( page_title_label, LV_FONT_DEFAULT, 0 );
+    lv_obj_align( page_title_label, LV_ALIGN_LEFT_MID, 12, 0 );
+
+    /* Dot indicators — true screen center */
+    lv_obj_t *dot_container = lv_obj_create( top_bar );
+    lv_obj_remove_style_all( dot_container );
+    lv_obj_set_size( dot_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT );
+    lv_obj_set_layout( dot_container, LV_LAYOUT_FLEX );
+    lv_obj_set_flex_flow( dot_container, LV_FLEX_FLOW_ROW );
+    lv_obj_set_flex_align( dot_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER );
+    lv_obj_set_style_pad_column( dot_container, 6, 0 );
+    lv_obj_center( dot_container );
+
+    for ( int i = 0; i < NUM_TABS; i++ )
+    {
+        page_dots[i] = lv_obj_create( dot_container );
+        lv_obj_remove_style_all( page_dots[i] );
+        lv_obj_set_size( page_dots[i], 8, 8 );
+        lv_obj_set_style_radius( page_dots[i], LV_RADIUS_CIRCLE, 0 );
+        lv_obj_set_style_bg_opa( page_dots[i], LV_OPA_COVER, 0 );
+        lv_obj_set_style_bg_color( page_dots[i], ( i == 0 ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
+        lv_obj_set_clickable( page_dots[i], false );
+    }
+
+    /* Battery — fixed container pinned right, glyphs centered inside */
+    lv_obj_t *battery_container = battery_indicator_create( top_bar );
+    lv_obj_align( battery_container, LV_ALIGN_RIGHT_MID, -HEADER_RIGHT_MARGIN, 0 );
+
+    lv_obj_t *wifi_icon = wifi_status_icon_create( top_bar );
+    ui_test_id( wifi_icon, "header.wifi" );
+    lv_obj_align( wifi_icon, LV_ALIGN_RIGHT_MID,
+                  -( HEADER_RIGHT_MARGIN + BATTERY_INDICATOR_WIDTH + HEADER_ICON_GAP ), 0 );
+
+    /* ── Tabview: grows to fill remaining space ───────────────────────── */
+    tab_view = lv_tabview_create( core2forAWS_obj );
+    ui_test_id(tab_view, "tabs");
+    lv_tabview_set_tab_bar_position( tab_view, LV_DIR_TOP );
+    lv_tabview_set_tab_bar_size( tab_view, 0 );
+    lv_obj_set_width( tab_view, lv_pct( 100 ) );
+    lv_obj_set_flex_grow( tab_view, 1 );
+    lv_obj_add_event_cb( tab_view, tab_event_cb, LV_EVENT_VALUE_CHANGED, NULL );
     
-    xTaskCreatePinnedToCore( sound_task, "soundTask", 4096 * 2, NULL, 4, NULL, 1 );
-    
-    xSemaphoreTake( core2foraws_display_semaphore, portMAX_DELAY );   // Takes the core2foraws_display_semaphore mutex. This blocks any other task attempting to take it before it's free'd from executing.
-    lv_obj_clean( opener_scr );   // Clear the aws_img_obj and remove from memory space. Currently no objects exist on the screen.
-    lv_obj_t *core2forAWS_obj = lv_obj_create( NULL, NULL ); // Create an object to draw all with no parent 
-    lv_scr_load_anim( core2forAWS_obj, LV_SCR_LOAD_ANIM_MOVE_LEFT, 400, 0, false );   // Animates the loading of core2forAWS_obj as a slide into view from the left
-    tab_view = lv_tabview_create( core2forAWS_obj, NULL ); // Creates the tab view to display different tabs with different hardware features
-    lv_obj_set_event_cb( tab_view, tab_event_cb ); // Add a callback for whenever there is an event triggered on the tab_view object (e.g. a left-to-right swipe)
-    lv_tabview_set_btns_pos( tab_view, LV_TABVIEW_TAB_POS_NONE );  // Hide the tab buttons so it looks like a clean screen
-    
-    xSemaphoreGive( core2foraws_display_semaphore );  // Frees the core2foraws_display_semaphore so that another task can use it. In this case, the higher priority guiTask will take it and then read the values to then display.
+    lvgl_port_unlock();
 
     /*
     Below creates all the display layers for the various peripheral tabs. Some of the tabs also starts the concurrent FreeRTOS tasks 
     that read/write to the peripheral registers and displays the data from that peripheral.
     */
-    display_home_tab( tab_view );
-    display_clock_tab( tab_view, core2forAWS_obj );
-    display_mpu_tab( tab_view );
-    display_microphone_tab( tab_view );
-    display_LED_bar_tab( tab_view );
-    display_power_tab( tab_view, core2forAWS_obj );
-    display_touch_tab( tab_view );
-    display_crypto_tab( tab_view );
-    display_wifi_tab( tab_view );
-    display_cta_tab( tab_view );
+    ESP_LOGD( TAG, "Building UI tabs" );
+    for (size_t i = 0; i < NUM_TABS; i++) pages[i].build(tab_view);
+
+    /* Single BUTTON_RIGHT PRESS dispatch — registered last so it wins.
+     * Routes to the right handler depending on the active tab. */
+    esp_err_t err = core2foraws_button_register_callback( BUTTON_RIGHT, PRESS, right_button_dispatch_cb );
+    if ( err != ESP_OK )
+        ESP_LOGE( TAG, "Failed to register right button: %s", esp_err_to_name( err ) );
+
+    ESP_LOGD( TAG, "UI ready" );
 }
 
-static void tab_event_cb( lv_obj_t *slider, lv_event_t event )
+/* Routes BUTTON_RIGHT PRESS to the correct tab handler */
+static void right_button_dispatch_cb( enum core2foraws_button_btns button, press_event_t event )
 {
-    if ( event == LV_EVENT_VALUE_CHANGED )
+    if ( !lvgl_port_lock( 1000 ) )
     {
-        lv_tabview_ext_t *ext = ( lv_tabview_ext_t * ) lv_obj_get_ext_attr( tab_view );
-        const char *tab_name = ext->tab_name_ptr[ lv_tabview_get_tab_act( tab_view ) ];
-        ESP_LOGI( TAG, "Current Active Tab: %s\n", tab_name );
-
-        vTaskSuspend( MPU_handle );
-        vTaskSuspend( mic_handle );
-        vTaskSuspend( FFT_handle );
-        vTaskSuspend( wifi_handle );
-        vTaskSuspend( touch_handle );
-        vTaskSuspend( led_bar_solid_handle );
-        vTaskResume( led_bar_animation_handle );
-        
-        if ( strcmp( tab_name, CLOCK_TAB_NAME ) == 0 )
-            update_roller_time();
-        else if ( strcmp( tab_name, MPU_TAB_NAME ) == 0 )
-            vTaskResume( MPU_handle );
-        else if (strcmp( tab_name, MICROPHONE_TAB_NAME ) == 0 )
-        {
-            vTaskResume( mic_handle );
-            vTaskResume( FFT_handle );
-        } 
-        else if ( strcmp( tab_name, LED_BAR_TAB_NAME ) == 0 )
-        {
-            vTaskSuspend( led_bar_animation_handle );
-            vTaskResume( led_bar_solid_handle );
-        }
-        else if ( strcmp( tab_name, TOUCH_TAB_NAME ) == 0 )
-        {
-            reset_touch_bg();
-            vTaskResume( touch_handle );
-        }
-        else if ( strcmp( tab_name, WIFI_TAB_NAME ) == 0 )
-            vTaskResume( wifi_handle );
+        ESP_LOGW( TAG, "LVGL lock timeout; ignoring right button" );
+        return;
     }
+    uint16_t idx = lv_tabview_get_tab_active( tab_view );
+    lvgl_port_unlock();
+    if ( idx >= NUM_TABS )
+    {
+        ESP_LOGE( TAG, "Invalid active tab index: %u", idx );
+        return;
+    }
+    ESP_LOGD( TAG, "Right button pressed on tab: %s", pages[ idx ].name );
+    if (pages[idx].on_right_press) pages[idx].on_right_press();
+}
+
+static void tab_event_cb( lv_event_t *e )
+{
+    uint16_t tab_idx = lv_tabview_get_tab_active( tab_view );
+    if (tab_idx >= NUM_TABS) return;
+    ESP_LOGI( TAG, "Active tab: %s", pages[tab_idx].name );
+
+    /* Update page indicator dots */
+    for ( int i = 0; i < NUM_TABS; i++ )
+        lv_obj_set_style_bg_color( page_dots[i], ( i == tab_idx ) ? lv_color_hex( UI_ACCENT_COLOR ) : lv_color_hex( UI_DOT_INACTIVE ), 0 );
+    lv_label_set_text_static( page_title_label, pages[tab_idx].title );
+
+    for (size_t i = 0; i < NUM_TABS; i++)
+        if (pages[i].set_active) pages[i].set_active(i == tab_idx);
 }
